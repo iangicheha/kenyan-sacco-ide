@@ -70,8 +70,13 @@ import {
   RotateCcw,
   RotateCw,
   RefreshCw,
+  Undo2,
+  Redo2,
+  PanelLeftClose,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { parseFormula } from '@/lib/formulaParser';
+import { ExcelSheet } from '@/components/ExcelSheet';
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState('Trial Balance - January 2026');
@@ -102,6 +107,9 @@ export default function Home() {
   const [wordSelection, setWordSelection] = useState<{ start: number; end: number } | null>(null);
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
+  const [history, setHistory] = useState<any[]>([excelData]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const [aiAssistantVisible, setAiAssistantVisible] = useState(false);
 
   const handleFileSelect = (fileName: string, type: 'excel' | 'word' | 'pdf') => {
     setSelectedFile(fileName);
@@ -117,18 +125,10 @@ export default function Home() {
     setCellValue(data?.[col] || '');
   };
 
-  // Calculate formula results
+  // Calculate formula results using the new parser
   const calculateFormula = (formula: string, data: any[]): string => {
-    try {
-      const expr = formula.replace(/([A-J])(\d+)/g, (match) => {
-        const col = match.charCodeAt(0) - 65;
-        const row = parseInt(match.slice(1)) - 1;
-        return (data[row]?.[String.fromCharCode(65 + col)] || 0).toString();
-      });
-      return eval(expr).toString();
-    } catch (e) {
-      return '#ERROR';
-    }
+    const result = parseFormula(formula, data);
+    return result.toString();
   };
 
   const handleCellChange = (value: string) => {
@@ -139,7 +139,13 @@ export default function Home() {
     if (newData[row]) {
       (newData[row] as any)[col] = value;
       setExcelData(newData);
+      addToHistory(newData);
     }
+  };
+
+  const handleExcelDataChange = (newData: any[]) => {
+    setExcelData(newData);
+    addToHistory(newData);
   };
 
   const handleCellDoubleClick = (cellId: string) => {
@@ -158,6 +164,7 @@ export default function Home() {
       if (newData[row]) {
         (newData[row] as any)[col] = editingValue;
         setExcelData(newData);
+        addToHistory(newData);
       }
     }
     setEditingCell(null);
@@ -218,6 +225,47 @@ export default function Home() {
     }
   };
 
+  const addToHistory = (newData: any) => {
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(newData);
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  };
+
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      setHistoryIndex(newIndex);
+      setExcelData(history[newIndex]);
+      toast.success('Undo applied');
+    }
+  };
+
+  const handleRedo = () => {
+    if (historyIndex < history.length - 1) {
+      const newIndex = historyIndex + 1;
+      setHistoryIndex(newIndex);
+      setExcelData(history[newIndex]);
+      toast.success('Redo applied');
+    }
+  };
+
+  const handleReload = () => {
+    setExcelData([
+      { A: 'Account', B: 'Debit', C: 'Credit', D: '=B2-C2' },
+      { A: 'Cash', B: 50000, C: 0, D: '=B2-C2' },
+      { A: 'Bank Account', B: 150000, C: 0, D: '=B3-C3' },
+      { A: 'Member Loans', B: 500000, C: 0, D: '=B4-C4' },
+      { A: 'Savings Account', B: 0, C: 600000, D: '=B5-C5' },
+      { A: 'Operating Expenses', B: 25000, C: 0, D: '=B6-C6' },
+    ]);
+    setHistory([excelData]);
+    setHistoryIndex(0);
+    setSelectedCell('A1');
+    setCellValue('');
+    toast.success('Data reloaded');
+  };
+
   const RibbonButton = ({ icon: Icon, label, onClick }: any) => (
     <button
       onClick={onClick}
@@ -236,76 +284,18 @@ export default function Home() {
     </div>
   );
 
-  // Excel Viewer
-  const ExcelViewer = () => {
-    const cols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
-    return (
-      <div className="flex flex-col h-full w-full bg-white overflow-hidden">
-        <div className="flex-1 overflow-auto">
-          <table className="border-collapse w-full">
-            <tbody>
-              {excelData.map((row, rowIdx) => (
-                <tr key={rowIdx}>
-                  <td className="w-12 h-8 border border-slate-300 bg-slate-100 text-xs text-slate-600 text-center font-mono sticky left-0 z-10">
-                    {rowIdx + 1}
-                  </td>
-                  {cols.map((col) => {
-                    const isSelected = selectedCell === `${col}${rowIdx + 1}`;
-                    const cellData = (row as any)[col];
-                    const displayValue = typeof cellData === 'string' && cellData.startsWith('=') 
-                      ? calculateFormula(cellData, excelData) 
-                      : cellData;
-                    return (
-                      <td
-                        key={`${col}${rowIdx}`}
-                        onClick={() => handleCellClick(rowIdx + 1, col)}
-                        onDoubleClick={() => handleCellDoubleClick(`${col}${rowIdx + 1}`)}
-                        onKeyDown={(e) => handleCellKeyDown(e, rowIdx, col)}
-                        className={`w-24 h-8 border border-slate-300 px-2 text-xs cursor-cell font-mono relative ${
-                          isSelected
-                            ? 'bg-blue-100 border-blue-500 outline-2 outline-blue-600'
-                            : 'bg-white hover:bg-slate-50'
-                        }`}
-                        tabIndex={0}
-                      >
-                        {editingCell === `${col}${rowIdx + 1}` ? (
-                          <input
-                            type="text"
-                            value={editingValue}
-                            onChange={(e) => setEditingValue(e.target.value)}
-                            onKeyDown={handleCellEditKeyDown}
-                            onBlur={handleCellEditSave}
-                            autoFocus
-                            className="w-full h-full border-0 outline-0 p-0 text-xs font-mono"
-                          />
-                        ) : (
-                          displayValue
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-              {Array.from({ length: 100 - excelData.length }).map((_, idx) => (
-                <tr key={`empty-${idx}`}>
-                  <td className="w-12 h-8 border border-slate-300 bg-slate-100 text-xs text-slate-600 text-center font-mono sticky left-0 z-10">
-                    {excelData.length + idx + 1}
-                  </td>
-                  {cols.map((col) => (
-                    <td
-                      key={`${col}-empty-${idx}`}
-                      onClick={() => handleCellClick(excelData.length + idx + 1, col)}
-                      className="w-24 h-8 border border-slate-300 px-2 text-xs cursor-cell font-mono bg-white hover:bg-slate-50"
-                    />
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  };
+  // Excel Viewer - using new ExcelSheet component
+  const ExcelViewer = () => (
+    <ExcelSheet
+      data={excelData}
+      onDataChange={setExcelData}
+      selectedCell={selectedCell}
+      onCellSelect={setSelectedCell}
+      editingCell={editingCell}
+      onEditStart={setEditingCell}
+      onEditEnd={() => setEditingCell(null)}
+    />
+  );
 
   // Word Viewer
   const WordViewer = () => (
@@ -449,11 +439,17 @@ export default function Home() {
         e.preventDefault();
         if (fileType === 'excel') handleCut();
         else if (fileType === 'word') handleWordCut();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        handleUndo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        handleRedo();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [fileType, selectedCell, cellValue, excelData, wordContent, wordSelection, clipboard]);
+  }, [fileType, selectedCell, cellValue, excelData, wordContent, wordSelection, clipboard, historyIndex, history]);
 
   const handleToolClick = (toolName: string) => {
     toast.success(`${toolName} activated`);
@@ -464,14 +460,14 @@ export default function Home() {
       {/* Premium Header */}
       <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-2">
-          <button className="p-1.5 hover:bg-slate-100 rounded transition-colors" title="Undo">
-            <RotateCcw className="w-4 h-4 text-slate-600" />
+          <button onClick={handleUndo} className="p-1.5 hover:bg-slate-100 rounded transition-colors" title="Undo">
+            <Undo2 className="w-4 h-4 text-slate-600" />
           </button>
-          <button className="p-1.5 hover:bg-slate-100 rounded transition-colors" title="Redo">
+          <button onClick={handleRedo} className="p-1.5 hover:bg-slate-100 rounded transition-colors" title="Redo">
+            <Redo2 className="w-4 h-4 text-slate-600" />
+          </button>
+          <button onClick={handleReload} className="p-1.5 hover:bg-slate-100 rounded transition-colors" title="Reload">
             <RotateCw className="w-4 h-4 text-slate-600" />
-          </button>
-          <button className="p-1.5 hover:bg-slate-100 rounded transition-colors" title="Reload">
-            <RefreshCw className="w-4 h-4 text-slate-600" />
           </button>
         </div>
         <h1 className="text-lg font-bold text-slate-900 flex-1 text-center">SACCO IDE</h1>
@@ -495,7 +491,7 @@ export default function Home() {
                 className="text-slate-600 hover:text-slate-900 transition-colors"
                 title="Collapse sidebar"
               >
-                <X className="w-4 h-4" />
+                <PanelLeftClose className="w-4 h-4" />
               </button>
             </div>
           )}
@@ -506,7 +502,7 @@ export default function Home() {
                 className="text-slate-600 hover:text-slate-900 transition-colors"
                 title="Expand sidebar"
               >
-                <ChevronRight className="w-4 h-4" />
+                <Menu className="w-4 h-4" />
               </button>
             </div>
           )}
@@ -548,32 +544,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* Logo and Toggle at Bottom */}
-          <div className="p-3 border-t border-slate-200 flex items-center justify-between">
-            <div className={`w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-semibold flex-shrink-0 ${!sidebarExpanded && 'mx-auto'}`}>
-              IG
-            </div>
-            {sidebarExpanded && (
-              <button
-                onClick={() => setSidebarExpanded(!sidebarExpanded)}
-                className="text-slate-600 hover:text-slate-900 transition-colors"
-                title="Collapse sidebar"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-            )}
-          </div>
 
-          {/* Expand button when collapsed */}
-          {!sidebarExpanded && (
-            <button
-              onClick={() => setSidebarExpanded(!sidebarExpanded)}
-              className="p-2 text-slate-600 hover:text-slate-900 transition-colors"
-              title="Expand sidebar"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          )}
         </div>
 
         {/* Center - Document Area */}
@@ -802,7 +773,19 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Floating AI Assistant Button */}
+        {!aiAssistantVisible && (
+          <button
+            onClick={() => setAiAssistantVisible(true)}
+            className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110 z-50"
+            title="Open AI Assistant"
+          >
+            <Sparkles className="w-6 h-6" />
+          </button>
+        )}
+
         {/* Right Sidebar - AI Agent */}
+        {aiAssistantVisible && (
         <div className="w-80 bg-white border-l border-slate-200 flex flex-col shadow-sm">
           {/* Header */}
           <div className="p-4 border-b border-slate-200 flex items-center justify-between">
@@ -814,7 +797,7 @@ export default function Home() {
               <Button size="sm" variant="ghost" className="text-slate-600 hover:text-slate-900">
                 <Settings className="w-4 h-4" />
               </Button>
-              <Button size="sm" variant="ghost" className="text-slate-600 hover:text-slate-900">
+              <Button size="sm" variant="ghost" onClick={() => setAiAssistantVisible(false)} className="text-slate-600 hover:text-slate-900">
                 <X className="w-4 h-4" />
               </Button>
             </div>
@@ -861,6 +844,7 @@ export default function Home() {
             </Button>
           </div>
         </div>
+        )}
       </div>
 
       {/* Status Bar */}

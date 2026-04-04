@@ -341,9 +341,9 @@ export default function Home() {
       </div>
 
       {/* Modern Ribbon Menu - Complete with Collapse Toggle */}
-      <div className="relative bg-white border-b border-slate-200 overflow-x-auto shadow-sm transition-all duration-300" style={{height: ribbonExpanded ? 'auto' : '48px'}}>
-        {/* Tabs */}
-        <div className={`px-6 py-2 flex items-center gap-1 border-b border-slate-200 ${ribbonExpanded ? 'block' : 'hidden'}`}>
+      <div className="relative bg-white border-b border-slate-200 overflow-hidden shadow-sm">
+        {/* Tabs - Always Visible */}
+        <div className="px-6 py-2 flex items-center gap-1 border-b border-slate-200">
           {['home', 'insert', 'layout', 'formulas', 'data', 'view', 'settings'].map((tab) => (
             <button
               key={tab}
@@ -359,16 +359,10 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Ribbon Content - All Tabs */}
-        <div className={`px-2 py-2 overflow-x-auto ${ribbonExpanded ? 'block' : 'hidden'}`}>
+        {/* Ribbon Content - Collapsible */}
+        <div className={`px-2 py-2 overflow-x-auto transition-all duration-300 ${ribbonExpanded ? 'block max-h-screen' : 'hidden h-0'}`}>
           {/* HOME TAB */}
-          {/* Collapse Toggle Button */}
-          {!ribbonExpanded && (
-            <div className="flex items-center justify-between px-6 py-2">
-              <span className="text-xs text-slate-600 font-medium">Ribbon Collapsed</span>
-            </div>
-          )}
-          {activeTab === 'home' && (
+          {ribbonExpanded && activeTab === 'home' && (
             <div className="flex gap-0.5">
               <RibbonGroup title="Clipboard">
                 <RibbonButton icon={Clipboard} label="Paste" onClick={() => handleToolClick('Paste')} />
@@ -462,7 +456,7 @@ export default function Home() {
           )}
 
           {/* INSERT TAB */}
-          {activeTab === 'insert' && (
+          {ribbonExpanded && activeTab === 'insert' && (
             <div className="flex gap-0.5">
               <RibbonGroup title="Pages">
                 <RibbonButton icon={Plus} label="Page" onClick={() => handleToolClick('Insert Page')} />
@@ -508,7 +502,7 @@ export default function Home() {
           )}
 
           {/* PAGE LAYOUT TAB */}
-          {activeTab === 'layout' && (
+          {ribbonExpanded && activeTab === 'layout' && (
             <div className="flex gap-0.5">
               <RibbonGroup title="Page Setup">
                 <RibbonButton icon={Columns} label="Margins" onClick={() => handleToolClick('Set Margins')} />
@@ -530,7 +524,7 @@ export default function Home() {
           )}
 
           {/* FORMULAS TAB */}
-          {activeTab === 'formulas' && (
+          {ribbonExpanded && activeTab === 'formulas' && (
             <div className="flex gap-0.5">
               <RibbonGroup title="Function Libraries">
                 <DropdownMenu>
@@ -588,7 +582,7 @@ export default function Home() {
           )}
 
           {/* DATA TAB */}
-          {activeTab === 'data' && (
+          {ribbonExpanded && activeTab === 'data' && (
             <div className="flex gap-0.5">
               <RibbonGroup title="Get & Transform Data">
                 <RibbonButton icon={Upload} label="From File" onClick={() => handleToolClick('Get Data from File')} />
@@ -623,7 +617,7 @@ export default function Home() {
           )}
 
           {/* VIEW TAB */}
-          {activeTab === 'view' && (
+          {ribbonExpanded && activeTab === 'view' && (
             <div className="flex gap-0.5">
               <RibbonGroup title="Views">
                 <RibbonButton icon={ViewIcon} label="Normal" onClick={() => handleToolClick('Normal View')} />
@@ -656,7 +650,7 @@ export default function Home() {
           )}
 
           {/* SETTINGS TAB */}
-          {activeTab === 'settings' && (
+          {ribbonExpanded && activeTab === 'settings' && (
             <div className="flex gap-0.5">
               <RibbonGroup title="Options">
                 <RibbonButton icon={SettingsIcon} label="General" onClick={() => handleToolClick('General Settings')} />
@@ -674,8 +668,8 @@ export default function Home() {
           )}
         </div>
 
-        {/* Collapse/Expand Toggle Button - Bottom Right */}
-        <div className="absolute bottom-0 right-0 p-2">
+        {/* Collapse/Expand Toggle Button - Bottom Right of Tabs */}
+        <div className="absolute top-2 right-2">
           <button
             onClick={() => setRibbonExpanded(!ribbonExpanded)}
             className="flex items-center justify-center w-6 h-6 rounded hover:bg-slate-100 transition-colors text-slate-600 hover:text-slate-900"

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -129,6 +129,9 @@ export default function Home() {
   const [fontSize, setFontSize] = useState('11');
   const [fontFamily, setFontFamily] = useState('Calibri');
   const [wordFormatting, setWordFormatting] = useState({ bold: false, italic: false, underline: false });
+  const [clipboard, setClipboard] = useState<{ type: 'cell' | 'text', data: any } | null>(null);
+  const [selectedRange, setSelectedRange] = useState<{ start: string; end: string } | null>(null);
+  const [wordSelection, setWordSelection] = useState<{ start: number; end: number } | null>(null);
 
   const handleFileSelect = (file: string, type: string) => {
     setSelectedFile(file);
@@ -232,6 +235,101 @@ export default function Home() {
       }, 800);
     }
   };
+
+  // Excel Copy-Paste Handlers
+  const handleExcelCopy = () => {
+    if (fileType === 'excel') {
+      const row = parseInt(selectedCell.slice(1)) - 1;
+      const col = selectedCell.slice(0, 1);
+      const data = (excelData[row] as any)?.[col];
+      setClipboard({ type: 'cell', data: { value: data, col, row } });
+      toast.success('Cell copied');
+    }
+  };
+
+  const handleExcelPaste = () => {
+    if (fileType === 'excel' && clipboard?.type === 'cell') {
+      const row = parseInt(selectedCell.slice(1)) - 1;
+      const col = selectedCell.slice(0, 1);
+      const newData = [...excelData];
+      if (newData[row]) {
+        (newData[row] as any)[col] = clipboard.data.value;
+        setExcelData(newData);
+        setCellValue(clipboard.data.value);
+        toast.success('Cell pasted');
+      }
+    }
+  };
+
+  const handleExcelCut = () => {
+    if (fileType === 'excel') {
+      handleExcelCopy();
+      const row = parseInt(selectedCell.slice(1)) - 1;
+      const col = selectedCell.slice(0, 1);
+      const newData = [...excelData];
+      if (newData[row]) {
+        (newData[row] as any)[col] = '';
+        setExcelData(newData);
+        setCellValue('');
+        toast.success('Cell cut');
+      }
+    }
+  };
+
+  // Word Copy-Paste Handlers
+  const handleWordCopy = () => {
+    if (fileType === 'word' && wordSelection) {
+      const selectedText = wordContent.substring(wordSelection.start, wordSelection.end);
+      setClipboard({ type: 'text', data: selectedText });
+      toast.success('Text copied');
+    } else if (fileType === 'word') {
+      setClipboard({ type: 'text', data: wordContent });
+      toast.success('All text copied');
+    }
+  };
+
+  const handleWordPaste = () => {
+    if (fileType === 'word' && clipboard?.type === 'text') {
+      if (wordSelection) {
+        const before = wordContent.substring(0, wordSelection.start);
+        const after = wordContent.substring(wordSelection.end);
+        setWordContent(before + clipboard.data + after);
+      } else {
+        setWordContent(wordContent + clipboard.data);
+      }
+      toast.success('Text pasted');
+    }
+  };
+
+  const handleWordCut = () => {
+    if (fileType === 'word' && wordSelection) {
+      handleWordCopy();
+      const before = wordContent.substring(0, wordSelection.start);
+      const after = wordContent.substring(wordSelection.end);
+      setWordContent(before + after);
+      toast.success('Text cut');
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        e.preventDefault();
+        if (fileType === 'excel') handleExcelCopy();
+        else if (fileType === 'word') handleWordCopy();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        e.preventDefault();
+        if (fileType === 'excel') handleExcelPaste();
+        else if (fileType === 'word') handleWordPaste();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
+        e.preventDefault();
+        if (fileType === 'excel') handleExcelCut();
+        else if (fileType === 'word') handleWordCut();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fileType, selectedCell, cellValue, excelData, wordContent, wordSelection, clipboard]);
 
   const handleToolClick = (toolName: string) => {
     toast.success(`${toolName} activated`);
@@ -355,6 +453,10 @@ export default function Home() {
           <textarea
             value={wordContent}
             onChange={(e) => setWordContent(e.target.value)}
+            onSelect={(e) => {
+              const target = e.target as HTMLTextAreaElement;
+              setWordSelection({ start: target.selectionStart, end: target.selectionEnd });
+            }}
             className="w-full h-full border-0 resize-none focus:outline-none text-sm leading-relaxed font-serif"
             style={{
               fontFamily: 'Georgia, serif',

@@ -145,7 +145,7 @@ export default function Home() {
 
   // EXCEL VIEWER
   const ExcelViewer = () => (
-    <div className="flex flex-col h-full bg-white rounded-lg shadow-lg overflow-hidden">
+    <div className="flex flex-col h-full bg-white overflow-hidden">
       {/* Formula Bar */}
       <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center gap-3">
         <div className="min-w-16 px-3 py-1.5 bg-white border border-slate-200 rounded text-xs font-mono text-slate-900">
@@ -215,7 +215,7 @@ export default function Home() {
 
   // WORD VIEWER
   const WordViewer = () => (
-    <div className="flex flex-col h-full bg-slate-100 rounded-lg overflow-hidden">
+    <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
       {/* Page Controls */}
       <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -251,7 +251,7 @@ export default function Home() {
 
   // PDF VIEWER
   const PdfViewer = () => (
-    <div className="flex flex-col h-full bg-slate-100 rounded-lg overflow-hidden">
+    <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
       <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between">
         <span className="text-xs text-slate-600">PDF Preview</span>
         <Button size="sm" variant="ghost" className="text-slate-600">
@@ -402,7 +402,7 @@ export default function Home() {
         </div>
 
         {/* Center - Document Viewer (Dynamic) */}
-        <div className="flex-1 overflow-hidden p-8">
+        <div className="flex-1 overflow-hidden">
           {fileType === 'excel' && <ExcelViewer />}
           {fileType === 'word' && <WordViewer />}
           {fileType === 'pdf' && <PdfViewer />}

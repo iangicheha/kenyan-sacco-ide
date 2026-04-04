@@ -128,6 +128,7 @@ export default function Home() {
   const [ribbonExpanded, setRibbonExpanded] = useState(true);
   const [fontSize, setFontSize] = useState('11');
   const [fontFamily, setFontFamily] = useState('Calibri');
+  const [wordFormatting, setWordFormatting] = useState({ bold: false, italic: false, underline: false });
 
   const handleFileSelect = (file: string, type: string) => {
     setSelectedFile(file);
@@ -142,6 +143,35 @@ export default function Home() {
     setCellValue(data?.[col] || '');
   };
 
+  // Calculate formula results
+  const calculateFormula = (formula: string, data: any[]): string => {
+    if (!formula.startsWith('=')) return formula;
+    try {
+      let expr = formula.slice(1);
+      // Handle SUM function
+      expr = expr.replace(/SUM\(([A-Z]\d+):([A-Z]\d+)\)/g, (match, start, end) => {
+        const startCol = start.charCodeAt(0) - 65;
+        const startRow = parseInt(start.slice(1)) - 1;
+        const endRow = parseInt(end.slice(1)) - 1;
+        let sum = 0;
+        for (let i = startRow; i <= endRow; i++) {
+          const val = data[i]?.[String.fromCharCode(65 + startCol)];
+          sum += parseFloat(val) || 0;
+        }
+        return sum.toString();
+      });
+      // Handle cell references (B2, C3, etc.)
+      expr = expr.replace(/([A-Z]\d+)/g, (match) => {
+        const col = match.charCodeAt(0) - 65;
+        const row = parseInt(match.slice(1)) - 1;
+        return (data[row]?.[String.fromCharCode(65 + col)] || 0).toString();
+      });
+      return eval(expr).toString();
+    } catch (e) {
+      return '#ERROR';
+    }
+  };
+
   const handleCellChange = (value: string) => {
     setCellValue(value);
     const row = parseInt(selectedCell.slice(1)) - 1;
@@ -150,6 +180,36 @@ export default function Home() {
     if (newData[row]) {
       (newData[row] as any)[col] = value;
       setExcelData(newData);
+    }
+  };
+
+  const handleCellKeyDown = (e: React.KeyboardEvent, rowIdx: number, col: string) => {
+    const row = rowIdx + 1;
+    const cols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const nextRow = Math.min(row + 1, excelData.length);
+      handleCellClick(nextRow, col);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      const currentIdx = cols.indexOf(col);
+      if (currentIdx < cols.length - 1) {
+        handleCellClick(row, cols[currentIdx + 1]);
+      }
+    } else if (e.key === 'ArrowUp' && row > 1) {
+      e.preventDefault();
+      handleCellClick(row - 1, col);
+    } else if (e.key === 'ArrowDown' && row < excelData.length) {
+      e.preventDefault();
+      handleCellClick(row + 1, col);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const currentIdx = cols.indexOf(col);
+      if (currentIdx > 0) handleCellClick(row, cols[currentIdx - 1]);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const currentIdx = cols.indexOf(col);
+      if (currentIdx < cols.length - 1) handleCellClick(row, cols[currentIdx + 1]);
     }
   };
 
@@ -243,13 +303,15 @@ export default function Home() {
                     <td
                       key={`${col}${rowIdx}`}
                       onClick={() => handleCellClick(rowIdx + 1, col)}
+                      onKeyDown={(e) => handleCellKeyDown(e, rowIdx, col)}
                       className={`w-24 h-8 border border-slate-300 px-2 text-xs cursor-cell font-mono ${
                         isSelected
                           ? 'bg-blue-100 border-blue-500 outline-2 outline-blue-600'
                           : 'bg-white hover:bg-slate-50'
                       }`}
+                      tabIndex={isSelected ? 0 : -1}
                     >
-                      {cellData || ''}
+                      {cellData?.startsWith('=') ? calculateFormula(cellData, excelData) : (cellData || '')}
                     </td>
                   );
                 })}
@@ -270,23 +332,21 @@ export default function Home() {
   // WORD VIEWER
   const WordViewer = () => (
     <div className="flex flex-col h-full w-full bg-white overflow-hidden">
-      {/* Page Controls */}
-      <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" className="text-slate-600">
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          <span className="text-xs text-slate-600">Page 1</span>
-          <Button size="sm" variant="ghost" className="text-slate-600">
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" className="text-slate-600">
-            <ZoomIn className="w-4 h-4" />
-          </Button>
-          <span className="text-xs text-slate-600">100%</span>
-        </div>
+      {/* Formatting Toolbar */}
+      <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2 flex-shrink-0">
+        <Button size="sm" variant={wordFormatting.bold ? 'default' : 'ghost'} onClick={() => setWordFormatting({ ...wordFormatting, bold: !wordFormatting.bold })}>
+          <Bold className="w-4 h-4" />
+        </Button>
+        <Button size="sm" variant={wordFormatting.italic ? 'default' : 'ghost'} onClick={() => setWordFormatting({ ...wordFormatting, italic: !wordFormatting.italic })}>
+          <Italic className="w-4 h-4" />
+        </Button>
+        <Button size="sm" variant={wordFormatting.underline ? 'default' : 'ghost'} onClick={() => setWordFormatting({ ...wordFormatting, underline: !wordFormatting.underline })}>
+          <Underline className="w-4 h-4" />
+        </Button>
+        <div className="border-l border-slate-300 h-6 mx-2"></div>
+        <Button size="sm" variant="ghost" onClick={() => toast.success('Document saved')}>
+          <Save className="w-4 h-4" />
+        </Button>
       </div>
 
       {/* Document */}
@@ -296,7 +356,12 @@ export default function Home() {
             value={wordContent}
             onChange={(e) => setWordContent(e.target.value)}
             className="w-full h-full border-0 resize-none focus:outline-none text-sm leading-relaxed font-serif"
-            style={{ fontFamily: 'Georgia, serif' }}
+            style={{
+              fontFamily: 'Georgia, serif',
+              fontWeight: wordFormatting.bold ? 'bold' : 'normal',
+              fontStyle: wordFormatting.italic ? 'italic' : 'normal',
+              textDecoration: wordFormatting.underline ? 'underline' : 'none',
+            }}
           />
         </div>
       </div>

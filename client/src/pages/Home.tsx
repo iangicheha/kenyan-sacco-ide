@@ -213,7 +213,7 @@ export default function Home() {
           <thead>
             <tr className="bg-slate-100 sticky top-0">
               <th className="w-12 h-8 border border-slate-300 bg-slate-100 text-center text-xs text-slate-600 font-semibold"></th>
-              {['A', 'B', 'C', 'D', 'E', 'F'].map((col) => (
+              {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'].map((col) => (
                 <th
                   key={col}
                   className="w-24 h-8 border border-slate-300 bg-slate-100 text-center text-xs text-slate-600 font-semibold"
@@ -229,7 +229,7 @@ export default function Home() {
                 <td className="w-12 h-8 border border-slate-300 bg-slate-100 text-center text-xs text-slate-600 font-semibold">
                   {rowIdx + 1}
                 </td>
-                {['A', 'B', 'C', 'D', 'E', 'F'].map((col) => {
+                {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'].map((col) => {
                   const isSelected = selectedCell === `${col}${rowIdx + 1}`;
                   const cellData = (row as any)[col];
                   return (
@@ -262,9 +262,9 @@ export default function Home() {
 
   // WORD VIEWER
   const WordViewer = () => (
-    <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-white overflow-hidden">
       {/* Page Controls */}
-      <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between">
+      <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
           <Button size="sm" variant="ghost" className="text-slate-600">
             <ChevronLeft className="w-4 h-4" />
@@ -283,8 +283,8 @@ export default function Home() {
       </div>
 
       {/* Document */}
-      <div className="flex-1 overflow-auto p-8 flex items-start justify-center">
-        <div className="bg-white w-full max-w-3xl shadow-lg p-12 min-h-full">
+      <div className="flex-1 overflow-auto w-full">
+        <div className="bg-white w-full h-full p-12 min-h-full">
           <textarea
             value={wordContent}
             onChange={(e) => setWordContent(e.target.value)}
@@ -298,15 +298,15 @@ export default function Home() {
 
   // PDF VIEWER
   const PdfViewer = () => (
-    <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
-      <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between">
+    <div className="flex flex-col h-full w-full bg-white overflow-hidden">
+      <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
         <span className="text-xs text-slate-600">PDF Preview</span>
         <Button size="sm" variant="ghost" className="text-slate-600">
           <Download className="w-4 h-4" />
         </Button>
       </div>
-      <div className="flex-1 overflow-auto p-8 flex items-center justify-center">
-        <div className="bg-white w-full max-w-3xl shadow-lg p-12 text-center">
+      <div className="flex-1 overflow-auto w-full bg-slate-100">
+        <div className="bg-white w-full h-full p-12 text-center flex items-center justify-center">
           <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
           <p className="text-slate-600">{selectedFile}</p>
           <p className="text-slate-500 text-sm mt-2">PDF Document</p>

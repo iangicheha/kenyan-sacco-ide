@@ -132,6 +132,56 @@ export default function Home() {
   const [clipboard, setClipboard] = useState<{ type: 'cell' | 'text', data: any } | null>(null);
   const [selectedRange, setSelectedRange] = useState<{ start: string; end: string } | null>(null);
   const [wordSelection, setWordSelection] = useState<{ start: number; end: number } | null>(null);
+  const [editingCell, setEditingCell] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+
+  const handleCellDoubleClick = (cellRef: string) => {
+    const row = parseInt(cellRef.slice(1)) - 1;
+    const col = cellRef.slice(0, 1);
+    const value = (excelData[row] as any)?.[col] || '';
+    setEditingCell(cellRef);
+    setEditingValue(value);
+  };
+
+  const handleCellEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditingValue(e.target.value);
+  };
+
+  const handleCellEditSave = () => {
+    if (editingCell) {
+      const row = parseInt(editingCell.slice(1)) - 1;
+      const col = editingCell.slice(0, 1);
+      const newData = [...excelData];
+      if (newData[row]) {
+        (newData[row] as any)[col] = editingValue;
+        setExcelData(newData);
+        setCellValue(editingValue);
+      }
+    }
+    setEditingCell(null);
+    setEditingValue('');
+  };
+
+  const handleCellEditKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleCellEditSave();
+      // Move to next row
+      const row = parseInt(editingCell!.slice(1));
+      const col = editingCell!.slice(0, 1);
+      setSelectedCell(`${col}${row + 1}`);
+    } else if (e.key === 'Escape') {
+      setEditingCell(null);
+      setEditingValue('');
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      handleCellEditSave();
+      // Move to next column
+      const row = editingCell!.slice(1);
+      const col = editingCell!.slice(0, 1);
+      const nextCol = String.fromCharCode(col.charCodeAt(0) + 1);
+      setSelectedCell(`${nextCol}${row}`);
+    }
+  };
 
   const handleFileSelect = (file: string, type: string) => {
     setSelectedFile(file);
@@ -367,6 +417,16 @@ export default function Home() {
         <Input
           value={cellValue}
           onChange={(e) => handleCellChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              const row = parseInt(selectedCell.slice(1));
+              const col = selectedCell.slice(0, 1);
+              const nextRow = Math.min(row + 1, 100);
+              setSelectedCell(`${col}${nextRow}`);
+              const newCellData = excelData[nextRow - 1] as any;
+              setCellValue(newCellData?.[col] || '');
+            }
+          }}
           placeholder="Enter value or formula"
           className="flex-1 bg-white border-slate-200 text-sm"
         />
@@ -401,15 +461,28 @@ export default function Home() {
                     <td
                       key={`${col}${rowIdx}`}
                       onClick={() => handleCellClick(rowIdx + 1, col)}
+                      onDoubleClick={() => handleCellDoubleClick(`${col}${rowIdx + 1}`)}
                       onKeyDown={(e) => handleCellKeyDown(e, rowIdx, col)}
-                      className={`w-24 h-8 border border-slate-300 px-2 text-xs cursor-cell font-mono ${
+                      className={`w-24 h-8 border border-slate-300 px-2 text-xs cursor-cell font-mono relative ${
                         isSelected
                           ? 'bg-blue-100 border-blue-500 outline-2 outline-blue-600'
                           : 'bg-white hover:bg-slate-50'
                       }`}
                       tabIndex={isSelected ? 0 : -1}
                     >
-                      {cellData?.startsWith('=') ? calculateFormula(cellData, excelData) : (cellData || '')}
+                      {editingCell === `${col}${rowIdx + 1}` ? (
+                        <input
+                          autoFocus
+                          type="text"
+                          value={editingValue}
+                          onChange={handleCellEditChange}
+                          onKeyDown={handleCellEditKeyDown}
+                          onBlur={handleCellEditSave}
+                          className="w-full h-full border-0 outline-none text-xs font-mono px-1"
+                        />
+                      ) : (
+                        cellData?.startsWith('=') ? calculateFormula(cellData, excelData) : (cellData || '')
+                      )}
                     </td>
                   );
                 })}

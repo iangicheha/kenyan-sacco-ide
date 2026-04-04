@@ -7,7 +7,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import {
   Bold,
@@ -26,50 +25,55 @@ import {
   Grid3x3,
   BarChart3,
   Filter,
-  MessageSquare,
-  Type,
   Zap,
   Eye,
   ZoomIn,
   Share2,
-  BookOpen,
-  Layers,
-  Maximize,
   Download,
   Upload,
   Play,
   Trash2,
   Send,
-  Menu,
-  X,
-  Home as HomeIcon,
-  ChevronRight,
-  Lightbulb,
   Sparkles,
   TrendingUp,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 /**
- * Kenyan SACCO IDE - Meridian AI Premium Design
+ * Kenyan SACCO IDE - Excel & Word Document Viewers
  * 
- * Design Philosophy:
- * - Clean, minimalist interface
- * - Modern color palette (deep navy, accent blue, white)
- * - Smooth animations and transitions
- * - Premium financial software aesthetic
- * - Streamlined ribbon with smart grouping
- * - Professional typography hierarchy
+ * Features:
+ * - Excel: Full spreadsheet with columns, rows, formula bar, cell editing
+ * - Word: Document view with page layout and text editing
+ * - Collaboration: User and AI work together in real-time
  */
+
+// Sample Excel Data
+const EXCEL_DATA = {
+  'Trial Balance - January 2026': [
+    { A: 'Account', B: 'Debit', C: 'Credit', D: 'Balance' },
+    { A: 'Cash', B: '50000', C: '0', D: '=B2-C2' },
+    { A: 'Bank Account', B: '150000', C: '0', D: '=B3-C3' },
+    { A: 'Member Loans', B: '500000', C: '0', D: '=B4-C4' },
+    { A: 'Savings Account', B: '0', C: '600000', D: '=B5-C5' },
+    { A: 'Operating Expenses', B: '25000', C: '0', D: '=B6-C6' },
+  ],
+};
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('home');
   const [selectedFile, setSelectedFile] = useState('Trial Balance - January 2026');
   const [fileType, setFileType] = useState('excel');
-  const [ribbonCollapsed, setRibbonCollapsed] = useState(false);
+  const [selectedCell, setSelectedCell] = useState('A1');
+  const [cellValue, setCellValue] = useState('');
+  const [excelData, setExcelData] = useState(EXCEL_DATA['Trial Balance - January 2026']);
+  const [wordContent, setWordContent] = useState('Financial Report - January 2026\n\nThis is a sample document...');
   const [agentMessages, setAgentMessages] = useState([
     {
       type: 'agent',
-      text: 'Hey! I\'m your SACCO AI. Upload messy data and I\'ll clean it, detect issues, and generate SASRA reports.',
+      text: 'I\'m ready to help. You can edit cells and I\'ll suggest improvements.',
       timestamp: new Date(),
     },
   ]);
@@ -78,6 +82,25 @@ export default function Home() {
   const handleFileSelect = (file: string, type: string) => {
     setSelectedFile(file);
     setFileType(type);
+    setSelectedCell('A1');
+  };
+
+  const handleCellClick = (row: number, col: string) => {
+    const cellId = `${col}${row}`;
+    setSelectedCell(cellId);
+    const data = excelData[row - 1] as any;
+    setCellValue(data?.[col] || '');
+  };
+
+  const handleCellChange = (value: string) => {
+    setCellValue(value);
+    const row = parseInt(selectedCell.slice(1)) - 1;
+    const col = selectedCell.slice(0, 1);
+    const newData = [...excelData];
+    if (newData[row]) {
+      (newData[row] as any)[col] = value;
+      setExcelData(newData);
+    }
   };
 
   const handleSendMessage = () => {
@@ -92,7 +115,7 @@ export default function Home() {
           ...prev,
           {
             type: 'agent',
-            text: 'Found 3 issues: phantom savings in member 1245, inconsistent dates, missing references. Fix automatically?',
+            text: 'I found an issue in row 5. The formula should be =B5-C5. Let me fix it.',
             timestamp: new Date(),
           },
         ]);
@@ -100,7 +123,7 @@ export default function Home() {
     }
   };
 
-  const RibbonButton = ({ icon: Icon, label, onClick, size = 'sm' }: any) => (
+  const RibbonButton = ({ icon: Icon, label, onClick }: any) => (
     <button
       onClick={onClick}
       className="flex flex-col items-center gap-1 px-2 py-1.5 rounded hover:bg-blue-50 transition-colors group"
@@ -120,6 +143,131 @@ export default function Home() {
     </div>
   );
 
+  // EXCEL VIEWER
+  const ExcelViewer = () => (
+    <div className="flex flex-col h-full bg-white rounded-lg shadow-lg overflow-hidden">
+      {/* Formula Bar */}
+      <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center gap-3">
+        <div className="min-w-16 px-3 py-1.5 bg-white border border-slate-200 rounded text-xs font-mono text-slate-900">
+          {selectedCell}
+        </div>
+        <span className="text-slate-500">fx</span>
+        <Input
+          value={cellValue}
+          onChange={(e) => handleCellChange(e.target.value)}
+          placeholder="Enter value or formula"
+          className="flex-1 bg-white border-slate-200 text-sm"
+        />
+      </div>
+
+      {/* Spreadsheet Grid */}
+      <div className="flex-1 overflow-auto">
+        <table className="border-collapse">
+          <thead>
+            <tr className="bg-slate-100 sticky top-0">
+              <th className="w-12 h-8 border border-slate-300 bg-slate-100 text-center text-xs text-slate-600 font-semibold"></th>
+              {['A', 'B', 'C', 'D', 'E', 'F'].map((col) => (
+                <th
+                  key={col}
+                  className="w-24 h-8 border border-slate-300 bg-slate-100 text-center text-xs text-slate-600 font-semibold"
+                >
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {excelData.map((row, rowIdx) => (
+              <tr key={rowIdx}>
+                <td className="w-12 h-8 border border-slate-300 bg-slate-100 text-center text-xs text-slate-600 font-semibold">
+                  {rowIdx + 1}
+                </td>
+                {['A', 'B', 'C', 'D', 'E', 'F'].map((col) => {
+                  const isSelected = selectedCell === `${col}${rowIdx + 1}`;
+                  const cellData = (row as any)[col];
+                  return (
+                    <td
+                      key={`${col}${rowIdx}`}
+                      onClick={() => handleCellClick(rowIdx + 1, col)}
+                      className={`w-24 h-8 border border-slate-300 px-2 text-xs cursor-cell font-mono ${
+                        isSelected
+                          ? 'bg-blue-100 border-blue-500 outline-2 outline-blue-600'
+                          : 'bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      {cellData || ''}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Status Bar */}
+      <div className="bg-slate-50 border-t border-slate-200 px-4 py-2 text-xs text-slate-600 flex justify-between">
+        <span>Ready</span>
+        <span>{selectedCell}</span>
+      </div>
+    </div>
+  );
+
+  // WORD VIEWER
+  const WordViewer = () => (
+    <div className="flex flex-col h-full bg-slate-100 rounded-lg overflow-hidden">
+      {/* Page Controls */}
+      <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" className="text-slate-600">
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <span className="text-xs text-slate-600">Page 1</span>
+          <Button size="sm" variant="ghost" className="text-slate-600">
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" className="text-slate-600">
+            <ZoomIn className="w-4 h-4" />
+          </Button>
+          <span className="text-xs text-slate-600">100%</span>
+        </div>
+      </div>
+
+      {/* Document */}
+      <div className="flex-1 overflow-auto p-8 flex items-start justify-center">
+        <div className="bg-white w-full max-w-3xl shadow-lg p-12 min-h-full">
+          <textarea
+            value={wordContent}
+            onChange={(e) => setWordContent(e.target.value)}
+            className="w-full h-full border-0 resize-none focus:outline-none text-sm leading-relaxed font-serif"
+            style={{ fontFamily: 'Georgia, serif' }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  // PDF VIEWER
+  const PdfViewer = () => (
+    <div className="flex flex-col h-full bg-slate-100 rounded-lg overflow-hidden">
+      <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between">
+        <span className="text-xs text-slate-600">PDF Preview</span>
+        <Button size="sm" variant="ghost" className="text-slate-600">
+          <Download className="w-4 h-4" />
+        </Button>
+      </div>
+      <div className="flex-1 overflow-auto p-8 flex items-center justify-center">
+        <div className="bg-white w-full max-w-3xl shadow-lg p-12 text-center">
+          <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+          <p className="text-slate-600">{selectedFile}</p>
+          <p className="text-slate-500 text-sm mt-2">PDF Document</p>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       {/* Premium Header */}
@@ -136,17 +284,10 @@ export default function Home() {
             placeholder="Search files..."
             className="w-48 bg-slate-100 border-0 text-sm placeholder:text-slate-400 focus:bg-white"
           />
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-slate-600 hover:text-blue-600 hover:bg-blue-50"
-          >
+          <Button size="sm" variant="ghost" className="text-slate-600 hover:text-blue-600 hover:bg-blue-50">
             <Share2 className="w-4 h-4" />
           </Button>
-          <Button
-            size="sm"
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
-          >
+          <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
             <Save className="w-4 h-4" /> Save
           </Button>
         </div>
@@ -205,42 +346,11 @@ export default function Home() {
             </RibbonGroup>
           </div>
         )}
-
-        {activeTab === 'insert' && (
-          <div className="flex gap-0.5 pb-2">
-            <RibbonGroup title="Pages">
-              <RibbonButton icon={Plus} label="Page" />
-            </RibbonGroup>
-            <RibbonGroup title="Tables">
-              <RibbonButton icon={Grid3x3} label="Table" />
-            </RibbonGroup>
-            <RibbonGroup title="Charts">
-              <RibbonButton icon={BarChart3} label="Chart" />
-            </RibbonGroup>
-            <RibbonGroup title="Media">
-              <RibbonButton icon={Upload} label="Upload" />
-            </RibbonGroup>
-          </div>
-        )}
-
-        {activeTab === 'data' && (
-          <div className="flex gap-0.5 pb-2">
-            <RibbonGroup title="Data">
-              <RibbonButton icon={Upload} label="Import" />
-              <RibbonButton icon={Filter} label="Filter" />
-              <RibbonButton icon={Trash2} label="Clean" />
-            </RibbonGroup>
-            <RibbonGroup title="Analysis">
-              <RibbonButton icon={BarChart3} label="Analyze" />
-              <RibbonButton icon={TrendingUp} label="Trends" />
-            </RibbonGroup>
-          </div>
-        )}
       </div>
 
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar - Modern */}
+        {/* Left Sidebar */}
         <div className="w-72 bg-white border-r border-slate-200 flex flex-col shadow-sm">
           {/* User Profile */}
           <div className="p-6 border-b border-slate-200">
@@ -253,9 +363,7 @@ export default function Home() {
 
           {/* Directory */}
           <div className="px-6 py-4 border-b border-slate-200">
-            <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-3">
-              Recent Files
-            </h3>
+            <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Recent Files</h3>
           </div>
 
           {/* File List */}
@@ -293,54 +401,14 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Center - Premium Document Viewer */}
-        <div className="flex-1 bg-gradient-to-br from-slate-50 to-slate-100 overflow-auto p-8 flex items-center justify-center">
-          {fileType === 'excel' && (
-            <div className="max-w-5xl w-full bg-white rounded-xl shadow-lg overflow-hidden">
-              <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-8 py-6">
-                <h1 className="text-xl font-bold text-white">{selectedFile}</h1>
-                <p className="text-blue-100 text-sm mt-1">Financial Data - January 2026</p>
-              </div>
-              <div className="p-8">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b-2 border-slate-200">
-                      <th className="text-left py-3 px-4 font-semibold text-slate-900">Account</th>
-                      <th className="text-right py-3 px-4 font-semibold text-slate-900">Debit</th>
-                      <th className="text-right py-3 px-4 font-semibold text-slate-900">Credit</th>
-                      <th className="text-right py-3 px-4 font-semibold text-slate-900">Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      { account: 'Cash', debit: '50,000', credit: '0', balance: '50,000' },
-                      { account: 'Bank Account', debit: '150,000', credit: '0', balance: '150,000' },
-                      { account: 'Member Loans', debit: '500,000', credit: '0', balance: '500,000' },
-                      { account: 'Savings Account', debit: '0', credit: '600,000', balance: '600,000' },
-                    ].map((row, idx) => (
-                      <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50 transition-colors">
-                        <td className="py-3 px-4 text-slate-900">{row.account}</td>
-                        <td className="text-right py-3 px-4 text-slate-600">{row.debit}</td>
-                        <td className="text-right py-3 px-4 text-slate-600">{row.credit}</td>
-                        <td className="text-right py-3 px-4 font-semibold text-slate-900">{row.balance}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {fileType === 'pdf' && (
-            <div className="bg-white rounded-xl shadow-lg p-12 text-center max-w-md">
-              <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <p className="text-slate-600 font-medium">{selectedFile}</p>
-              <p className="text-slate-500 text-sm mt-2">PDF Preview</p>
-            </div>
-          )}
+        {/* Center - Document Viewer (Dynamic) */}
+        <div className="flex-1 overflow-hidden p-8">
+          {fileType === 'excel' && <ExcelViewer />}
+          {fileType === 'word' && <WordViewer />}
+          {fileType === 'pdf' && <PdfViewer />}
         </div>
 
-        {/* Right Sidebar - AI Agent (Modern) */}
+        {/* Right Sidebar - AI Agent */}
         <div className="w-80 bg-white border-l border-slate-200 flex flex-col shadow-sm">
           {/* Header */}
           <div className="p-4 border-b border-slate-200 flex items-center justify-between">
@@ -357,10 +425,7 @@ export default function Home() {
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-4">
               {agentMessages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`flex gap-3 ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
+                <div key={idx} className={`flex gap-3 ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {msg.type === 'agent' && (
                     <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
                       <Sparkles className="w-3 h-3 text-blue-600" />
@@ -368,9 +433,7 @@ export default function Home() {
                   )}
                   <div
                     className={`max-w-xs rounded-lg px-4 py-2 text-sm ${
-                      msg.type === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-100 text-slate-900'
+                      msg.type === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-900'
                     }`}
                   >
                     {msg.text}
@@ -382,22 +445,14 @@ export default function Home() {
 
           {/* Quick Actions */}
           <div className="p-4 border-t border-slate-200 space-y-2">
-            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-3">
-              Quick Actions
-            </p>
+            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-3">Quick Actions</p>
             <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs justify-start gap-2">
               <Play className="w-3 h-3" /> Run Audit
             </Button>
-            <Button
-              variant="outline"
-              className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2"
-            >
+            <Button variant="outline" className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2">
               <Download className="w-3 h-3" /> Clean Data
             </Button>
-            <Button
-              variant="outline"
-              className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2"
-            >
+            <Button variant="outline" className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2">
               <FileText className="w-3 h-3" /> SASRA Form 4
             </Button>
           </div>
@@ -412,11 +467,7 @@ export default function Home() {
                 onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                 className="bg-slate-100 border-0 text-sm placeholder:text-slate-400 focus:bg-white"
               />
-              <Button
-                onClick={handleSendMessage}
-                size="sm"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-3"
-              >
+              <Button onClick={handleSendMessage} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white px-3">
                 <Send className="w-3 h-3" />
               </Button>
             </div>

@@ -210,17 +210,18 @@ export default function Home() {
   const RibbonButton = ({ icon: Icon, label, onClick }: any) => (
     <button
       onClick={onClick}
-      className="flex flex-col items-center gap-1 px-2 py-1.5 rounded hover:bg-blue-50 transition-colors group"
+      className="flex flex-col items-center gap-0.5 px-1.5 py-1 rounded hover:bg-blue-50 transition-colors group min-w-fit"
+      title={label}
     >
-      <Icon className="w-4 h-4 text-slate-600 group-hover:text-blue-600" />
-      <span className="text-xs text-slate-600 group-hover:text-blue-600">{label}</span>
+      <Icon className="w-3.5 h-3.5 text-slate-600 group-hover:text-blue-600" />
+      <span className="text-xs text-slate-600 group-hover:text-blue-600 whitespace-nowrap">{label}</span>
     </button>
   );
 
   const RibbonGroup = ({ title, children }: any) => (
-    <div className="flex flex-col items-center gap-2 px-3 py-2 border-r border-slate-200">
-      <div className="flex items-center gap-0.5">{children}</div>
-      <span className="text-xs text-slate-500">{title}</span>
+    <div className="flex flex-col items-center gap-1 px-2 py-1.5 border-r border-slate-200 min-w-fit">
+      <div className="flex items-center gap-0.5 flex-wrap justify-center">{children}</div>
+      <span className="text-xs text-slate-500 whitespace-nowrap">{title}</span>
     </div>
   );
 
@@ -550,7 +551,7 @@ export default function Home() {
           </div>
 
           {/* Ribbon Content */}
-          <div className={`bg-white border-b border-slate-200 overflow-x-auto transition-all duration-300 ${ribbonExpanded ? 'block' : 'hidden'}`}>
+          <div className={`bg-white border-b border-slate-200 overflow-x-auto overflow-y-hidden transition-all duration-300 ${ribbonExpanded ? 'block h-auto' : 'hidden h-0'}`}>
             {/* HOME TAB */}
             {ribbonExpanded && activeTab === 'home' && (
               <div className="flex gap-0.5 p-2">

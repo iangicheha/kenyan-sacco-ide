@@ -61,8 +61,7 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
     setIsLoading(true);
 
     try {
-      // Check if user is asking for audit
-      if (text.toLowerCase().includes("audit")) {
+      // Check if user is asking for      } else if (text.toLowerCase().includes("audit")) {
         const auditResponse = await fetch("/api/audit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -80,7 +79,7 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
           timestamp: new Date(),
           actionButtons: [
             { label: "View Results", action: "view-audit" },
-            { label: "Export Report", action: "export-audit" },
+            { label: "Download Board Report", action: "download-report" },
           ],
         };
         setMessages((prev) => [...prev, auditMessage]);
@@ -132,18 +131,57 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
     }
   };
 
-  const handleActionClick = (action: string) => {
+  const handleActionClick = async (action: string) => {
     onAction?.(action);
 
-    // Add action confirmation message
-    const confirmMessage: AgentMessage = {
-      id: Date.now().toString(),
-      type: "success",
-      content: `Action "${action}" initiated successfully.`,
-      timestamp: new Date(),
-    };
+    if (action === "download-report") {
+      try {
+        const response = await fetch("/api/generate-report", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
 
-    setMessages((prev) => [...prev, confirmMessage]);
+        if (!response.ok) {
+          throw new Error("Failed to generate report");
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "Meridian_AI_Audit_Report.pdf";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+
+        const successMessage: AgentMessage = {
+          id: Date.now().toString(),
+          type: "success",
+          content: "Boardroom Report downloaded successfully!",
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, successMessage]);
+      } catch (error) {
+        const errorMessage: AgentMessage = {
+          id: Date.now().toString(),
+          type: "error",
+          content: `Error downloading report: ${error instanceof Error ? error.message : "Unknown error"}`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+      }
+    } else {
+      // Add action confirmation message
+      const confirmMessage: AgentMessage = {
+        id: Date.now().toString(),
+        type: "success",
+        content: `Action "${action}" initiated successfully.`,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, confirmMessage]);
+    }
   };
 
   return (

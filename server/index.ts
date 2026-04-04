@@ -4,6 +4,8 @@ import csv from 'csv-parser';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
+
 import { Member, MpesaTransaction, AuditLog, MergedData } from '../shared/types';
 import { MeridianSemanticEngine } from './semantic_engine';
 
@@ -81,6 +83,43 @@ app.post('/api/audit', (req, res) => {
   const auditLogs = MeridianSemanticEngine.analyzeForensics(currentMergedData.members, currentMergedData.mpesaTransactions);
   currentMergedData.auditLogs = auditLogs;
   res.status(200).json({ message: 'Audit analysis complete.', auditLogs: currentMergedData.auditLogs });
+});
+
+// API endpoint for generating PDF report
+app.post('/api/generate-report', (req, res) => {
+  const pythonProcess = spawn('python3', [path.join(__dirname, 'generate_pdf.py')]);
+  let pdfPath = '';
+  let errorOutput = '';
+
+  pythonProcess.stdin.write(JSON.stringify(currentMergedData));
+  pythonProcess.stdin.end();
+
+  pythonProcess.stdout.on('data', (data) => {
+    pdfPath += data.toString().trim();
+  });
+
+  pythonProcess.stderr.on('data', (data) => {
+    errorOutput += data.toString();
+  });
+
+  pythonProcess.on('close', (code) => {
+    if (code !== 0) {
+      console.error(`Python script exited with code ${code}: ${errorOutput}`);
+      return res.status(500).json({ message: 'Failed to generate PDF report.', error: errorOutput });
+    }
+    if (fs.existsSync(pdfPath)) {
+      res.download(pdfPath, 'Meridian_AI_Audit_Report.pdf', (err) => {
+        if (err) {
+          console.error('Error sending file:', err);
+          res.status(500).json({ message: 'Error sending PDF file.', error: err.message });
+        } else {
+          fs.unlinkSync(pdfPath); // Clean up generated PDF
+        }
+      });
+    } else {
+      res.status(500).json({ message: 'Generated PDF file not found.', path: pdfPath });
+    }
+  });
 });
 
 // Basic health check endpoint

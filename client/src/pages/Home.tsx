@@ -546,11 +546,8 @@ export default function Home() {
   // PDF VIEWER
   const PdfViewer = () => (
     <div className="flex flex-col h-full w-full bg-white overflow-hidden">
-      <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
+      <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center justify-start flex-shrink-0">
         <span className="text-xs text-slate-600">PDF Preview</span>
-        <Button size="sm" variant="ghost" className="text-slate-600">
-          <Download className="w-4 h-4" />
-        </Button>
       </div>
       <div className="flex-1 overflow-auto w-full bg-slate-100">
         <div className="bg-white w-full h-full p-12 text-center flex items-center justify-center">
@@ -565,26 +562,8 @@ export default function Home() {
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       {/* Premium Header */}
-      <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-white font-bold text-sm">
-            SI
-          </div>
-          <h1 className="text-sm font-semibold text-slate-900">SACCO IDE</h1>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <Input
-            placeholder="Search files..."
-            className="w-48 bg-slate-100 border-0 text-sm placeholder:text-slate-400 focus:bg-white"
-          />
-          <Button size="sm" variant="ghost" className="text-slate-600 hover:text-blue-600 hover:bg-blue-50">
-            <Share2 className="w-4 h-4" />
-          </Button>
-          <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
-            <Save className="w-4 h-4" /> Save
-          </Button>
-        </div>
+      <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-center shadow-sm">
+        <h1 className="text-lg font-bold text-slate-900">SACCO IDE</h1>
       </div>
 
       {/* Modern Ribbon Menu - Complete with Collapse Toggle */}
@@ -936,7 +915,7 @@ export default function Home() {
         {/* Left Sidebar */}
         <div className="w-72 bg-white border-r border-slate-200 flex flex-col shadow-sm">
           {/* User Profile */}
-          <div className="p-6 border-b border-slate-200">
+          <div className="p-4 border-b border-slate-200">
             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-semibold mb-3">
               IG
             </div>

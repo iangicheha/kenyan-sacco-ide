@@ -350,8 +350,8 @@ export default function Home() {
               onClick={() => setActiveTab(tab)}
               className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
                 activeTab === tab
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                  : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
               {tab === 'layout' ? 'Page Layout' : tab.charAt(0).toUpperCase() + tab.slice(1)}

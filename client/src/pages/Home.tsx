@@ -463,12 +463,7 @@ export default function Home() {
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       {/* Premium Header */}
       <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
-        <h1 className="text-lg font-bold text-slate-900">SACCO IDE</h1>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded">
-            <Search className="w-4 h-4 text-slate-600" />
-            <input type="text" placeholder="Search..." className="bg-transparent text-xs outline-none w-32" />
-          </div>
+        <div className="flex items-center gap-2">
           <button className="p-1.5 hover:bg-slate-100 rounded transition-colors" title="Undo">
             <RotateCcw className="w-4 h-4 text-slate-600" />
           </button>
@@ -478,6 +473,11 @@ export default function Home() {
           <button className="p-1.5 hover:bg-slate-100 rounded transition-colors" title="Reload">
             <RefreshCw className="w-4 h-4 text-slate-600" />
           </button>
+        </div>
+        <h1 className="text-lg font-bold text-slate-900 flex-1 text-center">SACCO IDE</h1>
+        <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded">
+          <Search className="w-4 h-4 text-slate-600" />
+          <input type="text" placeholder="Search..." className="bg-transparent text-xs outline-none w-32" />
         </div>
       </div>
 
@@ -867,10 +867,6 @@ export default function Home() {
       <div className="bg-white border-t border-slate-200 px-6 py-2 text-xs text-slate-600 flex items-center justify-between">
         <span>Ready</span>
         <span>{selectedCell}</span>
-                {/* Bottom Footer */}
-        <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-4 py-2 text-center text-xs text-slate-600">
-          SACCO IDE
-        </div>
       </div>
     </div>
   );

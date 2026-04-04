@@ -91,14 +91,21 @@ import {
  */
 
 // Sample Excel Data
+// Generate 100 empty rows for unlimited scrolling
+const generateEmptyRows = (count: number) => 
+  Array.from({ length: count }, () => ({
+    A: '', B: '', C: '', D: '', E: '', F: '', G: '', H: '', I: '', J: ''
+  }));
+
 const EXCEL_DATA = {
   'Trial Balance - January 2026': [
-    { A: 'Account', B: 'Debit', C: 'Credit', D: 'Balance' },
-    { A: 'Cash', B: '50000', C: '0', D: '=B2-C2' },
-    { A: 'Bank Account', B: '150000', C: '0', D: '=B3-C3' },
-    { A: 'Member Loans', B: '500000', C: '0', D: '=B4-C4' },
-    { A: 'Savings Account', B: '0', C: '600000', D: '=B5-C5' },
-    { A: 'Operating Expenses', B: '25000', C: '0', D: '=B6-C6' },
+    { A: 'Account', B: 'Debit', C: 'Credit', D: 'Balance', E: '', F: '', G: '', H: '', I: '', J: '' },
+    { A: 'Cash', B: '50000', C: '0', D: '=B2-C2', E: '', F: '', G: '', H: '', I: '', J: '' },
+    { A: 'Bank Account', B: '150000', C: '0', D: '=B3-C3', E: '', F: '', G: '', H: '', I: '', J: '' },
+    { A: 'Member Loans', B: '500000', C: '0', D: '=B4-C4', E: '', F: '', G: '', H: '', I: '', J: '' },
+    { A: 'Savings Account', B: '0', C: '600000', D: '=B5-C5', E: '', F: '', G: '', H: '', I: '', J: '' },
+    { A: 'Operating Expenses', B: '25000', C: '0', D: '=B6-C6', E: '', F: '', G: '', H: '', I: '', J: '' },
+    ...generateEmptyRows(94),
   ],
 };
 

@@ -60,21 +60,32 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
     setInputValue("");
     setIsLoading(true);
 
-    // Simulate agent response
-    setTimeout(() => {
-      const responses: Record<string, AgentMessage> = {
-        audit: {
+    try {
+      // Check if user is asking for audit
+      if (text.toLowerCase().includes("audit")) {
+        const auditResponse = await fetch("/api/audit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (!auditResponse.ok) {
+          throw new Error("Audit failed");
+        }
+
+        const auditData = await auditResponse.json();
+        const auditMessage: AgentMessage = {
           id: Date.now().toString(),
           type: "action",
-          content:
-            "Running Forensic Audit... Scanning for anomalies in your data.",
+          content: `Forensic Audit Complete! Found ${auditData.auditLogs.length} discrepancies. ${auditData.auditLogs.map((log: any) => `${log.memberId}: ${log.description}`).join(" | ")}`,
           timestamp: new Date(),
           actionButtons: [
             { label: "View Results", action: "view-audit" },
             { label: "Export Report", action: "export-audit" },
           ],
-        },
-        clean: {
+        };
+        setMessages((prev) => [...prev, auditMessage]);
+      } else if (text.toLowerCase().includes("clean")) {
+        const cleanMessage: AgentMessage = {
           id: Date.now().toString(),
           type: "action",
           content:
@@ -84,8 +95,10 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
             { label: "Apply Changes", action: "apply-clean" },
             { label: "Preview", action: "preview-clean" },
           ],
-        },
-        sasra: {
+        };
+        setMessages((prev) => [...prev, cleanMessage]);
+      } else if (text.toLowerCase().includes("sasra")) {
+        const sasraMessage: AgentMessage = {
           id: Date.now().toString(),
           type: "action",
           content:
@@ -95,25 +108,28 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
             { label: "Generate Form 4", action: "generate-form4" },
             { label: "Preview", action: "preview-form4" },
           ],
-        },
-        default: {
+        };
+        setMessages((prev) => [...prev, sasraMessage]);
+      } else {
+        const defaultMessage: AgentMessage = {
           id: Date.now().toString(),
           type: "agent",
-          content: `I understand you want to: "${text}". This feature is being processed. How can I assist you further?`,
+          content: `I understand you want to: "${text}". How can I assist you further?`,
           timestamp: new Date(),
-        },
+        };
+        setMessages((prev) => [...prev, defaultMessage]);
+      }
+    } catch (error) {
+      const errorMessage: AgentMessage = {
+        id: Date.now().toString(),
+        type: "error",
+        content: `Error: ${error instanceof Error ? error.message : "Unknown error occurred"}`,
+        timestamp: new Date(),
       };
-
-      const response =
-        responses[
-          Object.keys(responses).find((key) =>
-            text.toLowerCase().includes(key)
-          ) || "default"
-        ];
-
-      setMessages((prev) => [...prev, response]);
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsLoading(false);
-    }, 1500);
+    }
   };
 
   const handleActionClick = (action: string) => {

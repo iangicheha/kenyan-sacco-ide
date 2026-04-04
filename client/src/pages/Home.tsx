@@ -66,6 +66,10 @@ import {
   Palette,
   HelpCircle,
   Info,
+  Search,
+  RotateCcw,
+  RotateCw,
+  RefreshCw,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -458,8 +462,23 @@ export default function Home() {
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       {/* Premium Header */}
-      <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-center shadow-sm">
+      <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
         <h1 className="text-lg font-bold text-slate-900">SACCO IDE</h1>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded">
+            <Search className="w-4 h-4 text-slate-600" />
+            <input type="text" placeholder="Search..." className="bg-transparent text-xs outline-none w-32" />
+          </div>
+          <button className="p-1.5 hover:bg-slate-100 rounded transition-colors" title="Undo">
+            <RotateCcw className="w-4 h-4 text-slate-600" />
+          </button>
+          <button className="p-1.5 hover:bg-slate-100 rounded transition-colors" title="Redo">
+            <RotateCw className="w-4 h-4 text-slate-600" />
+          </button>
+          <button className="p-1.5 hover:bg-slate-100 rounded transition-colors" title="Reload">
+            <RefreshCw className="w-4 h-4 text-slate-600" />
+          </button>
+        </div>
       </div>
 
       {/* Main Content Area */}
@@ -469,8 +488,26 @@ export default function Home() {
 
           {/* Directory - Hidden when collapsed */}
           {sidebarExpanded && (
-            <div className="px-6 py-4 border-b border-slate-200">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Recent Files</h3>
+              <button
+                onClick={() => setSidebarExpanded(false)}
+                className="text-slate-600 hover:text-slate-900 transition-colors"
+                title="Collapse sidebar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          {!sidebarExpanded && (
+            <div className="px-2 py-3 border-b border-slate-200 flex justify-center">
+              <button
+                onClick={() => setSidebarExpanded(true)}
+                className="text-slate-600 hover:text-slate-900 transition-colors"
+                title="Expand sidebar"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
           )}
 
@@ -670,15 +707,15 @@ export default function Home() {
             {ribbonExpanded && activeTab === 'formulas' && (
               <div className="flex gap-0.5 p-2 overflow-x-auto">
                 <RibbonGroup title="Financial">
-                  <RibbonButton icon={DollarSign} label="SUM" onClick={() => handleToolClick('SUM')} />
-                  <RibbonButton icon={DollarSign} label="AVERAGE" onClick={() => handleToolClick('AVERAGE')} />
+                  <RibbonButton icon={Sigma} label="SUM" onClick={() => handleToolClick('SUM')} />
+                  <RibbonButton icon={TrendingUp} label="AVERAGE" onClick={() => handleToolClick('AVERAGE')} />
                   <RibbonButton icon={DollarSign} label="PMT" onClick={() => handleToolClick('PMT')} />
-                  <RibbonButton icon={DollarSign} label="NPV" onClick={() => handleToolClick('NPV')} />
+                  <RibbonButton icon={BarChart3} label="NPV" onClick={() => handleToolClick('NPV')} />
                 </RibbonGroup>
                 <RibbonGroup title="Logical">
-                  <RibbonButton icon={Filter} label="IF" onClick={() => handleToolClick('IF')} />
-                  <RibbonButton icon={Filter} label="AND" onClick={() => handleToolClick('AND')} />
-                  <RibbonButton icon={Filter} label="OR" onClick={() => handleToolClick('OR')} />
+                  <RibbonButton icon={Zap} label="IF" onClick={() => handleToolClick('IF')} />
+                  <RibbonButton icon={Zap} label="AND" onClick={() => handleToolClick('AND')} />
+                  <RibbonButton icon={Zap} label="OR" onClick={() => handleToolClick('OR')} />
                 </RibbonGroup>
                 <RibbonGroup title="Text">
                   <RibbonButton icon={Type} label="CONCAT" onClick={() => handleToolClick('CONCAT')} />
@@ -773,9 +810,14 @@ export default function Home() {
               <Sparkles className="w-4 h-4 text-blue-600" />
               <h3 className="text-sm font-semibold text-slate-900">AI Assistant</h3>
             </div>
-            <Button size="sm" variant="ghost" className="text-slate-600 hover:text-slate-900">
-              <Settings className="w-4 h-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="ghost" className="text-slate-600 hover:text-slate-900">
+                <Settings className="w-4 h-4" />
+              </Button>
+              <Button size="sm" variant="ghost" className="text-slate-600 hover:text-slate-900">
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
 
           {/* Messages */}

@@ -118,6 +118,7 @@ export default function Home() {
     },
   ]);
   const [agentInput, setAgentInput] = useState('');
+  const [ribbonExpanded, setRibbonExpanded] = useState(true);
   const [fontSize, setFontSize] = useState('11');
   const [fontFamily, setFontFamily] = useState('Calibri');
 
@@ -339,10 +340,10 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Modern Ribbon Menu - Complete */}
-      <div className="bg-white border-b border-slate-200 overflow-x-auto shadow-sm">
+      {/* Modern Ribbon Menu - Complete with Collapse Toggle */}
+      <div className="relative bg-white border-b border-slate-200 overflow-x-auto shadow-sm transition-all duration-300" style={{height: ribbonExpanded ? 'auto' : '48px'}}>
         {/* Tabs */}
-        <div className="px-6 py-2 flex items-center gap-1 border-b border-slate-200">
+        <div className={`px-6 py-2 flex items-center gap-1 border-b border-slate-200 ${ribbonExpanded ? 'block' : 'hidden'}`}>
           {['home', 'insert', 'layout', 'formulas', 'data', 'view', 'settings'].map((tab) => (
             <button
               key={tab}
@@ -359,8 +360,14 @@ export default function Home() {
         </div>
 
         {/* Ribbon Content - All Tabs */}
-        <div className="px-2 py-2 overflow-x-auto">
+        <div className={`px-2 py-2 overflow-x-auto ${ribbonExpanded ? 'block' : 'hidden'}`}>
           {/* HOME TAB */}
+          {/* Collapse Toggle Button */}
+          {!ribbonExpanded && (
+            <div className="flex items-center justify-between px-6 py-2">
+              <span className="text-xs text-slate-600 font-medium">Ribbon Collapsed</span>
+            </div>
+          )}
           {activeTab === 'home' && (
             <div className="flex gap-0.5">
               <RibbonGroup title="Clipboard">
@@ -665,6 +672,21 @@ export default function Home() {
               </RibbonGroup>
             </div>
           )}
+        </div>
+
+        {/* Collapse/Expand Toggle Button - Bottom Right */}
+        <div className="absolute bottom-0 right-0 p-2">
+          <button
+            onClick={() => setRibbonExpanded(!ribbonExpanded)}
+            className="flex items-center justify-center w-6 h-6 rounded hover:bg-slate-100 transition-colors text-slate-600 hover:text-slate-900"
+            title={ribbonExpanded ? 'Collapse Ribbon' : 'Expand Ribbon'}
+          >
+            {ribbonExpanded ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
+          </button>
         </div>
       </div>
 

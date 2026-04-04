@@ -459,38 +459,13 @@ export default function Home() {
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       {/* Premium Header */}
       <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-center shadow-sm">
+        <h1 className="text-lg font-bold text-slate-900">SACCO IDE</h1>
       </div>
 
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar - Collapsible */}
         <div className={`bg-white border-r border-slate-200 flex flex-col shadow-sm transition-all duration-300 ${sidebarExpanded ? 'w-72' : 'w-16'}`}>
-          {/* Logo and Toggle */}
-          <div className="p-3 border-b border-slate-200 flex items-center justify-between">
-            <div className={`w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-semibold flex-shrink-0 ${!sidebarExpanded && 'mx-auto'}`}>
-              IG
-            </div>
-            {sidebarExpanded && (
-              <button
-                onClick={() => setSidebarExpanded(!sidebarExpanded)}
-                className="text-slate-600 hover:text-slate-900 transition-colors"
-                title="Collapse sidebar"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-
-          {/* Expand button when collapsed */}
-          {!sidebarExpanded && (
-            <button
-              onClick={() => setSidebarExpanded(!sidebarExpanded)}
-              className="p-2 text-slate-600 hover:text-slate-900 transition-colors"
-              title="Expand sidebar"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          )}
 
           {/* Directory - Hidden when collapsed */}
           {sidebarExpanded && (
@@ -534,6 +509,33 @@ export default function Home() {
                 <Upload className="w-4 h-4" /> Upload File
               </Button>
             </div>
+          )}
+
+          {/* Logo and Toggle at Bottom */}
+          <div className="p-3 border-t border-slate-200 flex items-center justify-between">
+            <div className={`w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-semibold flex-shrink-0 ${!sidebarExpanded && 'mx-auto'}`}>
+              IG
+            </div>
+            {sidebarExpanded && (
+              <button
+                onClick={() => setSidebarExpanded(!sidebarExpanded)}
+                className="text-slate-600 hover:text-slate-900 transition-colors"
+                title="Collapse sidebar"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Expand button when collapsed */}
+          {!sidebarExpanded && (
+            <button
+              onClick={() => setSidebarExpanded(!sidebarExpanded)}
+              className="p-2 text-slate-600 hover:text-slate-900 transition-colors"
+              title="Expand sidebar"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
           )}
         </div>
 
@@ -740,8 +742,8 @@ export default function Home() {
               </div>
             )}
 
-          {/* Collapse/Expand Toggle Button */}
-          <div className="absolute top-56 right-4 z-10">
+          {/* Collapse/Expand Toggle Button - Centered */}
+          <div className="flex justify-center py-1 bg-white border-b border-slate-200">
             <button
               onClick={() => setRibbonExpanded(!ribbonExpanded)}
               className="flex items-center justify-center w-6 h-6 rounded hover:bg-slate-100 transition-colors text-slate-600 hover:text-slate-900"

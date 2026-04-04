@@ -59,6 +59,13 @@ import {
   Cloud,
   Bell,
   SettingsIcon,
+  Image,
+  Link,
+  BookOpen,
+  Calendar,
+  Palette,
+  HelpCircle,
+  Info,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -452,7 +459,6 @@ export default function Home() {
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       {/* Premium Header */}
       <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-center shadow-sm">
-        <h1 className="text-lg font-bold text-slate-900">SACCO IDE</h1>
       </div>
 
       {/* Main Content Area */}
@@ -618,51 +624,124 @@ export default function Home() {
 
             {/* INSERT TAB */}
             {ribbonExpanded && activeTab === 'insert' && (
-              <div className="flex gap-0.5 p-2">
+              <div className="flex gap-0.5 p-2 overflow-x-auto">
                 <RibbonGroup title="Tables">
                   <RibbonButton icon={Grid} label="Table" onClick={() => handleToolClick('Insert Table')} />
                 </RibbonGroup>
                 <RibbonGroup title="Illustrations">
-                  <RibbonButton icon={Plus} label="Picture" onClick={() => handleToolClick('Insert Picture')} />
+                  <RibbonButton icon={Image} label="Picture" onClick={() => handleToolClick('Insert Picture')} />
                   <RibbonButton icon={BarChart3} label="Chart" onClick={() => handleToolClick('Insert Chart')} />
+                  <RibbonButton icon={Plus} label="Shapes" onClick={() => handleToolClick('Insert Shapes')} />
+                </RibbonGroup>
+                <RibbonGroup title="Text">
+                  <RibbonButton icon={Type} label="Text Box" onClick={() => handleToolClick('Insert Text Box')} />
+                  <RibbonButton icon={FileText} label="Header" onClick={() => handleToolClick('Insert Header')} />
+                  <RibbonButton icon={FileText} label="Footer" onClick={() => handleToolClick('Insert Footer')} />
+                </RibbonGroup>
+                <RibbonGroup title="Links">
+                  <RibbonButton icon={Link} label="Hyperlink" onClick={() => handleToolClick('Insert Hyperlink')} />
+                  <RibbonButton icon={BookOpen} label="Bookmark" onClick={() => handleToolClick('Insert Bookmark')} />
                 </RibbonGroup>
               </div>
             )}
 
             {/* PAGE LAYOUT TAB */}
             {ribbonExpanded && activeTab === 'layout' && (
-              <div className="flex gap-0.5 p-2">
+              <div className="flex gap-0.5 p-2 overflow-x-auto">
                 <RibbonGroup title="Page Setup">
                   <RibbonButton icon={Columns} label="Margins" onClick={() => handleToolClick('Set Margins')} />
                   <RibbonButton icon={Maximize2} label="Orientation" onClick={() => handleToolClick('Change Orientation')} />
                   <RibbonButton icon={Grid} label="Size" onClick={() => handleToolClick('Set Page Size')} />
+                </RibbonGroup>
+                <RibbonGroup title="Sheet Options">
+                  <RibbonButton icon={Eye} label="Freeze Panes" onClick={() => handleToolClick('Freeze Panes')} />
+                  <RibbonButton icon={Grid} label="Gridlines" onClick={() => handleToolClick('Toggle Gridlines')} />
+                </RibbonGroup>
+                <RibbonGroup title="Themes">
+                  <RibbonButton icon={Palette} label="Colors" onClick={() => handleToolClick('Change Colors')} />
+                  <RibbonButton icon={Type} label="Fonts" onClick={() => handleToolClick('Change Fonts')} />
                 </RibbonGroup>
               </div>
             )}
 
             {/* FORMULAS TAB */}
             {ribbonExpanded && activeTab === 'formulas' && (
-              <div className="flex gap-0.5 p-2">
-                <RibbonGroup title="Function Libraries">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded flex items-center gap-1">
-                        Financial <ChevronDown className="w-3 h-3" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent className="bg-white border-slate-200">
-                      <DropdownMenuItem onClick={() => handleToolClick('SUM')}>SUM</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleToolClick('AVERAGE')}>AVERAGE</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleToolClick('PMT')}>PMT</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+              <div className="flex gap-0.5 p-2 overflow-x-auto">
+                <RibbonGroup title="Financial">
+                  <RibbonButton icon={DollarSign} label="SUM" onClick={() => handleToolClick('SUM')} />
+                  <RibbonButton icon={DollarSign} label="AVERAGE" onClick={() => handleToolClick('AVERAGE')} />
+                  <RibbonButton icon={DollarSign} label="PMT" onClick={() => handleToolClick('PMT')} />
+                  <RibbonButton icon={DollarSign} label="NPV" onClick={() => handleToolClick('NPV')} />
+                </RibbonGroup>
+                <RibbonGroup title="Logical">
+                  <RibbonButton icon={Filter} label="IF" onClick={() => handleToolClick('IF')} />
+                  <RibbonButton icon={Filter} label="AND" onClick={() => handleToolClick('AND')} />
+                  <RibbonButton icon={Filter} label="OR" onClick={() => handleToolClick('OR')} />
+                </RibbonGroup>
+                <RibbonGroup title="Text">
+                  <RibbonButton icon={Type} label="CONCAT" onClick={() => handleToolClick('CONCAT')} />
+                  <RibbonButton icon={Type} label="LEN" onClick={() => handleToolClick('LEN')} />
+                  <RibbonButton icon={Type} label="UPPER" onClick={() => handleToolClick('UPPER')} />
+                </RibbonGroup>
+                <RibbonGroup title="Date & Time">
+                  <RibbonButton icon={Calendar} label="TODAY" onClick={() => handleToolClick('TODAY')} />
+                  <RibbonButton icon={Calendar} label="DATE" onClick={() => handleToolClick('DATE')} />
                 </RibbonGroup>
               </div>
             )}
           </div>
 
+            {/* DATA TAB */}
+            {ribbonExpanded && activeTab === 'data' && (
+              <div className="flex gap-0.5 p-2 overflow-x-auto">
+                <RibbonGroup title="Sort & Filter">
+                  <RibbonButton icon={ArrowUp} label="Sort A-Z" onClick={() => handleToolClick('Sort Ascending')} />
+                  <RibbonButton icon={ArrowDown} label="Sort Z-A" onClick={() => handleToolClick('Sort Descending')} />
+                  <RibbonButton icon={Filter} label="AutoFilter" onClick={() => handleToolClick('Apply AutoFilter')} />
+                </RibbonGroup>
+                <RibbonGroup title="Data Tools">
+                  <RibbonButton icon={BarChart3} label="Subtotals" onClick={() => handleToolClick('Insert Subtotals')} />
+                  <RibbonButton icon={Grid} label="Validation" onClick={() => handleToolClick('Data Validation')} />
+                  <RibbonButton icon={Zap} label="Text to Columns" onClick={() => handleToolClick('Text to Columns')} />
+                </RibbonGroup>
+              </div>
+            )}
+
+            {/* VIEW TAB */}
+            {ribbonExpanded && activeTab === 'view' && (
+              <div className="flex gap-0.5 p-2 overflow-x-auto">
+                <RibbonGroup title="Workbook Views">
+                  <RibbonButton icon={Eye} label="Normal" onClick={() => handleToolClick('Normal View')} />
+                  <RibbonButton icon={Eye} label="Page Break" onClick={() => handleToolClick('Page Break View')} />
+                </RibbonGroup>
+                <RibbonGroup title="Show/Hide">
+                  <RibbonButton icon={Eye} label="Gridlines" onClick={() => handleToolClick('Toggle Gridlines')} />
+                  <RibbonButton icon={Eye} label="Headers" onClick={() => handleToolClick('Toggle Headers')} />
+                  <RibbonButton icon={Eye} label="Formulas" onClick={() => handleToolClick('Show Formulas')} />
+                </RibbonGroup>
+                <RibbonGroup title="Zoom">
+                  <RibbonButton icon={ZoomIn} label="Zoom In" onClick={() => handleToolClick('Zoom In')} />
+                  <RibbonButton icon={ZoomOut} label="Zoom Out" onClick={() => handleToolClick('Zoom Out')} />
+                </RibbonGroup>
+              </div>
+            )}
+
+            {/* SETTINGS TAB */}
+            {ribbonExpanded && activeTab === 'settings' && (
+              <div className="flex gap-0.5 p-2 overflow-x-auto">
+                <RibbonGroup title="Options">
+                  <RibbonButton icon={Settings} label="Preferences" onClick={() => handleToolClick('Open Preferences')} />
+                  <RibbonButton icon={Settings} label="Language" onClick={() => handleToolClick('Change Language')} />
+                </RibbonGroup>
+                <RibbonGroup title="Help">
+                  <RibbonButton icon={HelpCircle} label="Help" onClick={() => handleToolClick('Open Help')} />
+                  <RibbonButton icon={Info} label="About" onClick={() => handleToolClick('About SACCO IDE')} />
+                </RibbonGroup>
+              </div>
+            )}
+
           {/* Collapse/Expand Toggle Button */}
-          <div className="absolute top-24 right-4 z-10">
+          <div className="absolute top-56 right-4 z-10">
             <button
               onClick={() => setRibbonExpanded(!ribbonExpanded)}
               className="flex items-center justify-center w-6 h-6 rounded hover:bg-slate-100 transition-colors text-slate-600 hover:text-slate-900"
@@ -744,6 +823,10 @@ export default function Home() {
       <div className="bg-white border-t border-slate-200 px-6 py-2 text-xs text-slate-600 flex items-center justify-between">
         <span>Ready</span>
         <span>{selectedCell}</span>
+                {/* Bottom Footer */}
+        <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-4 py-2 text-center text-xs text-slate-600">
+          SACCO IDE
+        </div>
       </div>
     </div>
   );

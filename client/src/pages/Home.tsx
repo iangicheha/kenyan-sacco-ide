@@ -124,14 +124,11 @@ export default function Home() {
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       {/* Premium Header */}
       <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-white font-bold text-sm">
             SI
           </div>
-          <div>
-            <h1 className="text-sm font-semibold text-slate-900">SACCO IDE</h1>
-            <p className="text-xs text-slate-500">Financial Workspace for Kenya</p>
-          </div>
+          <h1 className="text-sm font-semibold text-slate-900">SACCO IDE</h1>
         </div>
 
         <div className="flex items-center gap-3">

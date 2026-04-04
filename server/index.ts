@@ -85,6 +85,32 @@ app.post('/api/audit', (req, res) => {
   res.status(200).json({ message: 'Audit analysis complete.', auditLogs: currentMergedData.auditLogs });
 });
 
+// API endpoint for AI reasoning using local Ollama (DeepSeek-R1)
+app.post('/api/ai/chat', async (req, res) => {
+  const { message } = req.body;
+  
+  try {
+    const response = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'deepseek-r1:7b',
+        prompt: `You are Meridian AI, a financial forensic expert for Kenyan SACCOs. 
+        Context: ${JSON.stringify(currentMergedData.auditLogs)}
+        User Message: ${message}
+        Instructions: Provide a concise, professional financial insight based on the audit logs.`,
+        stream: false
+      })
+    });
+
+    const data = await response.json();
+    res.status(200).json({ response: data.response });
+  } catch (error) {
+    console.error('Ollama error:', error);
+    res.status(500).json({ message: 'AI Reasoning failed.', error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
 // API endpoint for generating PDF report
 app.post('/api/generate-report', (req, res) => {
   const pythonProcess = spawn('python3', [path.join(__dirname, 'generate_pdf.py')]);

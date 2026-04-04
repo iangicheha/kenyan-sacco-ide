@@ -110,13 +110,35 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
         };
         setMessages((prev) => [...prev, sasraMessage]);
       } else {
-        const defaultMessage: AgentMessage = {
-          id: Date.now().toString(),
-          type: "agent",
-          content: `I understand you want to: "${text}". How can I assist you further?`,
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, defaultMessage]);
+        // Real AI Reasoning using DeepSeek-R1 via Ollama
+        try {
+          const response = await fetch("/api/ai/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: text }),
+          });
+
+          if (!response.ok) {
+            throw new Error("AI Reasoning failed");
+          }
+
+          const data = await response.json();
+          const botMessage: AgentMessage = {
+            id: Date.now().toString(),
+            type: "agent",
+            content: data.response,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, botMessage]);
+        } catch (error) {
+          const errorMessage: AgentMessage = {
+            id: Date.now().toString(),
+            type: "error",
+            content: `AI Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, errorMessage]);
+        }
       }
     } catch (error) {
       const errorMessage: AgentMessage = {

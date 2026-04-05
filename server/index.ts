@@ -94,7 +94,7 @@ app.post('/api/ai/chat', async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'deepseek-r1:7b',
+        model: 'deepseek-r1:1.5b',
         prompt: `You are Meridian AI, a financial forensic expert for Kenyan SACCOs. 
         Context: ${JSON.stringify(currentMergedData.auditLogs)}
         User Message: ${message}

@@ -62,7 +62,7 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
 
     try {
       // Check if user is asking for      } else if (text.toLowerCase().includes("audit")) {
-        const auditResponse = await fetch("/api/audit", {
+        const auditResponse = await fetch("http://localhost:3001/api/audit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
         });
@@ -112,7 +112,7 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
       } else {
         // Real AI Reasoning using DeepSeek-R1 via Ollama
         try {
-          const response = await fetch("/api/ai/chat", {
+          const response = await fetch("http://localhost:3001/api/ai/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message: text }),
@@ -158,7 +158,7 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
 
     if (action === "download-report") {
       try {
-        const response = await fetch("/api/generate-report", {
+        const response = await fetch("http://localhost:3001/api/generate-report", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
         });

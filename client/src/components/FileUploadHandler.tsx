@@ -34,7 +34,7 @@ export function FileUploadHandler({ onUploadSuccess, onUploadError }: FileUpload
     selectedFiles.forEach(file => formData.append("files", file));
 
     try {
-      const response = await fetch("/api/upload", {
+      const response = await fetch("http://localhost:3001/api/upload", {
         method: "POST",
         body: formData,
       });

@@ -4,15 +4,19 @@ import csv from 'csv-parser';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
-import fetch from 'node-fetch';
 import cors from 'cors';
+import Groq from 'groq-sdk';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = 3001;
+
+// Initialize Groq client with API key from environment
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY || 'your_groq_api_key_here',
+});
 
 app.use(cors());
 app.use(express.json());
@@ -56,20 +60,90 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
 app.post('/api/ai/chat', async (req, res) => {
   const { message } = req.body;
   try {
-    const response = await fetch('http://127.0.0.1:11434/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'deepseek-r1:1.5b',
-        prompt: `You are Meridian AI expert. Message: ${message}`,
-        stream: false
-      })
+    const response = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'user',
+          content: `You are Meridian AI, a financial intelligence expert for Kenyan SACCOs. Provide concise, actionable financial insights. Message: ${message}`,
+        },
+      ],
+      max_tokens: 1024,
     });
-    const data = await response.json();
-    res.json({ response: data.response });
+
+    const aiResponse = response.choices[0]?.message?.content || 'No response generated';
+    res.json({ response: aiResponse });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Groq API Error:', error);
+    res.status(500).json({ error: error.message || 'AI reasoning failed' });
   }
 });
 
-app.listen(port, () => console.log(`API Server on ${port}`));
+app.post('/api/audit', async (req, res) => {
+  try {
+    // Perform forensic audit using Groq AI
+    const auditPrompt = `
+    Analyze this SACCO financial data for discrepancies:
+    Members: ${JSON.stringify(currentMergedData.members)}
+    M-Pesa Transactions: ${JSON.stringify(currentMergedData.mpesaTransactions)}
+    
+    Identify:
+    1. Phantom Savings (recorded but no M-Pesa proof)
+    2. Ghost Accounts (M-Pesa payments with no member record)
+    3. Discrepancies in amounts
+    
+    Format as JSON with findings array.
+    `;
+
+    const response = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: auditPrompt }],
+      max_tokens: 2048,
+    });
+
+    const auditResult = response.choices[0]?.message?.content || 'No audit findings';
+    res.json({ auditFindings: auditResult, data: currentMergedData });
+  } catch (error) {
+    console.error('Audit Error:', error);
+    res.status(500).json({ error: error.message || 'Audit failed' });
+  }
+});
+
+app.post('/api/generate-report', async (req, res) => {
+  try {
+    const reportPrompt = `
+    Generate a professional boardroom report summary for this SACCO audit:
+    Data: ${JSON.stringify(currentMergedData)}
+    
+    Include:
+    1. Executive Summary
+    2. Key Findings
+    3. Risk Assessment
+    4. Recommendations
+    
+    Format as markdown.
+    `;
+
+    const response = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: reportPrompt }],
+      max_tokens: 2048,
+    });
+
+    const reportContent = response.choices[0]?.message?.content || 'No report generated';
+    res.json({ report: reportContent });
+  } catch (error) {
+    console.error('Report Generation Error:', error);
+    res.status(500).json({ error: error.message || 'Report generation failed' });
+  }
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'Meridian AI API is running', timestamp: new Date().toISOString() });
+});
+
+app.listen(port, () => {
+  console.log(`🚀 Meridian AI API Server running on port ${port}`);
+  console.log(`📊 Using Groq Cloud API with DeepSeek-R1-Distill-Llama-70B`);
+  console.log(`⚡ Lightning-fast financial intelligence for Kenyan SACCOs`);
+});

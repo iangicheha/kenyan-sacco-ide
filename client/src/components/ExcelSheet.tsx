@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { parseFormula } from '@/lib/formulaParser';
-import { ChevronDown } from 'lucide-react';
+import { ArrowDownUp } from 'lucide-react';
 
 interface ExcelSheetProps {
   data: any[];
@@ -10,6 +10,10 @@ interface ExcelSheetProps {
   editingCell: string | null;
   onEditStart: (cell: string) => void;
   onEditEnd: () => void;
+  columnHeaders?: string[];
+  onLoadMoreRows?: () => void;
+  canLoadMoreRows?: boolean;
+  isLoadingMoreRows?: boolean;
 }
 
 export const ExcelSheet: React.FC<ExcelSheetProps> = ({
@@ -20,23 +24,41 @@ export const ExcelSheet: React.FC<ExcelSheetProps> = ({
   editingCell,
   onEditStart,
   onEditEnd,
+  columnHeaders = [],
+  onLoadMoreRows,
+  canLoadMoreRows = false,
+  isLoadingMoreRows = false,
 }) => {
   const [editingValue, setEditingValue] = useState('');
   const [formulaBarValue, setFormulaBarValue] = useState('');
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
-    A: 100, B: 100, C: 100, D: 100, E: 100, F: 100, G: 100, H: 100, I: 100, J: 100,
-  });
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [resizingCol, setResizingCol] = useState<string | null>(null);
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [filters, setFilters] = useState<Record<string, string>>({});
   const gridRef = useRef<HTMLDivElement>(null);
+  const cols = React.useMemo(() => {
+    const keys = new Set<string>();
+    data.forEach((row) => Object.keys(row || {}).forEach((k) => keys.add(k)));
+    const sorted = Array.from(keys).sort();
+    return sorted.length > 0 ? sorted : ['A', 'B', 'C', 'D'];
+  }, [data]);
+  const rows = Math.max(data.length, 30);
 
-  const cols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
-  const rows = 100;
+  useEffect(() => {
+    setColumnWidths((prev) => {
+      const next = { ...prev };
+      cols.forEach((col) => {
+        if (!next[col]) next[col] = 140;
+      });
+      return next;
+    });
+  }, [cols]);
 
   // Update formula bar when cell selection changes
   useEffect(() => {
     if (selectedCell && !editingCell) {
-      const col = selectedCell.charCodeAt(0) - 65;
-      const row = parseInt(selectedCell.slice(1)) - 1;
+      const row = parseInt(selectedCell.slice(1), 10) - 1;
       const cellValue = data[row]?.[selectedCell.slice(0, 1)] || '';
       setFormulaBarValue(cellValue.toString());
     }
@@ -52,7 +74,49 @@ export const ExcelSheet: React.FC<ExcelSheetProps> = ({
     if (typeof cellData === 'string' && cellData.startsWith('=')) {
       return calculateFormula(cellData);
     }
+    const header = (columnHeaders[cols.indexOf(col)] || col).toLowerCase();
+    const numeric = Number(cellData);
+    if (cellData !== '' && Number.isFinite(numeric)) {
+      if (header.includes('amount') || header.includes('debit') || header.includes('credit') || header.includes('payment')) {
+        return `KES ${numeric.toLocaleString()}`;
+      }
+      if (header.includes('percent') || header.includes('rate')) {
+        return `${numeric}%`;
+      }
+    }
+    if (typeof cellData === 'string' && /^\d{4}-\d{2}-\d{2}/.test(cellData)) {
+      const parsed = new Date(cellData);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toLocaleDateString();
+      }
+    }
     return cellData ?? '';
+  };
+
+  const sortedFilteredData = React.useMemo(() => {
+    const filtered = data.filter((row) => cols.every((col) => {
+      const query = (filters[col] || '').trim().toLowerCase();
+      if (!query) return true;
+      return String(row?.[col] ?? '').toLowerCase().includes(query);
+    }));
+
+    if (!sortColumn) return filtered;
+
+    return [...filtered].sort((a, b) => {
+      const av = String(a?.[sortColumn] ?? '');
+      const bv = String(b?.[sortColumn] ?? '');
+      const result = av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' });
+      return sortDirection === 'asc' ? result : -result;
+    });
+  }, [data, cols, filters, sortColumn, sortDirection]);
+
+  const toggleSort = (col: string) => {
+    if (sortColumn === col) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortColumn(col);
+    setSortDirection('asc');
   };
 
   const handleCellClick = (col: string, rowIdx: number) => {
@@ -178,10 +242,13 @@ export const ExcelSheet: React.FC<ExcelSheetProps> = ({
             {cols.map((col) => (
               <div
                 key={col}
-                className="h-6 border-b border-r border-gray-300 bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-700 relative flex-shrink-0"
+                className="h-6 border-b border-r border-gray-300 bg-gray-100 flex items-center justify-between text-xs font-bold text-gray-700 relative flex-shrink-0 px-1"
                 style={{ width: columnWidths[col] }}
               >
-                {col}
+                <button className="truncate text-left" onClick={() => toggleSort(col)} title="Sort column">
+                  {columnHeaders[cols.indexOf(col)] || col}
+                </button>
+                <ArrowDownUp className="w-3 h-3 text-gray-500" />
                 <div
                   className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-blue-500 hover:opacity-100 opacity-0"
                   onMouseDown={(e) => handleMouseDownResize(col, e)}
@@ -190,8 +257,27 @@ export const ExcelSheet: React.FC<ExcelSheetProps> = ({
             ))}
           </div>
 
+          {/* Filter Row */}
+          <div className="flex sticky top-6 z-20 bg-white">
+            <div className="w-12 h-6 border-b border-r border-gray-300 bg-gray-50 flex-shrink-0" />
+            {cols.map((col) => (
+              <div
+                key={`${col}-filter`}
+                className="h-6 border-b border-r border-gray-300 bg-gray-50 px-1 flex items-center flex-shrink-0"
+                style={{ width: columnWidths[col] }}
+              >
+                <input
+                  value={filters[col] || ''}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, [col]: e.target.value }))}
+                  placeholder="Filter"
+                  className="w-full text-[10px] bg-transparent border-0 outline-none"
+                />
+              </div>
+            ))}
+          </div>
+
           {/* Rows */}
-          {Array.from({ length: rows }).map((_, rowIdx) => (
+          {Array.from({ length: Math.max(sortedFilteredData.length, rows) }).map((_, rowIdx) => (
             <div key={rowIdx} className="flex">
               {/* Row Header */}
               <div className="w-12 h-6 border-b border-r border-gray-300 bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-700 flex-shrink-0 sticky left-0 z-10">
@@ -203,7 +289,31 @@ export const ExcelSheet: React.FC<ExcelSheetProps> = ({
                 const cellRef = `${col}${rowIdx + 1}`;
                 const isSelected = selectedCell === cellRef;
                 const isEditing = editingCell === cellRef;
-                const displayValue = getCellDisplayValue(col, rowIdx);
+                const displayValue = rowIdx < sortedFilteredData.length
+                  ? (() => {
+                      const cellData = sortedFilteredData[rowIdx]?.[col];
+                      if (typeof cellData === 'string' && cellData.startsWith('=')) {
+                        return calculateFormula(cellData);
+                      }
+                      const header = (columnHeaders[cols.indexOf(col)] || col).toLowerCase();
+                      const numeric = Number(cellData);
+                      if (cellData !== '' && Number.isFinite(numeric)) {
+                        if (header.includes('amount') || header.includes('debit') || header.includes('credit') || header.includes('payment')) {
+                          return `KES ${numeric.toLocaleString()}`;
+                        }
+                        if (header.includes('percent') || header.includes('rate')) {
+                          return `${numeric}%`;
+                        }
+                      }
+                      if (typeof cellData === 'string' && /^\d{4}-\d{2}-\d{2}/.test(cellData)) {
+                        const parsed = new Date(cellData);
+                        if (!Number.isNaN(parsed.getTime())) {
+                          return parsed.toLocaleDateString();
+                        }
+                      }
+                      return cellData ?? '';
+                    })()
+                  : '';
 
                 return (
                   <div
@@ -238,6 +348,19 @@ export const ExcelSheet: React.FC<ExcelSheetProps> = ({
           ))}
         </div>
       </div>
+
+      {canLoadMoreRows && (
+        <div className="border-t border-gray-200 bg-gray-50 px-4 py-2 flex justify-center">
+          <button
+            type="button"
+            onClick={onLoadMoreRows}
+            disabled={isLoadingMoreRows}
+            className="text-xs px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-60"
+          >
+            {isLoadingMoreRows ? 'Loading more...' : 'Load more rows'}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

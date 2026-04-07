@@ -61,7 +61,7 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
     setIsLoading(true);
 
     try {
-      // Check if user is asking for      } else if (text.toLowerCase().includes("audit")) {
+      if (text.toLowerCase().includes("audit")) {
         const auditResponse = await fetch("http://localhost:3001/api/audit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -110,19 +110,23 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
         };
         setMessages((prev) => [...prev, sasraMessage]);
       } else {
-        // Real AI Reasoning using DeepSeek-R1 via Ollama
+        // Real AI Reasoning using Groq
         try {
+          console.log('🔄 Sending to backend:', text);
           const response = await fetch("http://localhost:3001/api/ai/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message: text }),
           });
 
+          console.log('📦 Backend response status:', response.status);
+
           if (!response.ok) {
             throw new Error("AI Reasoning failed");
           }
 
           const data = await response.json();
+          console.log('✅ Got response from backend:', data.response?.substring(0, 50));
           const botMessage: AgentMessage = {
             id: Date.now().toString(),
             type: "agent",
@@ -131,6 +135,7 @@ export function AgentSidebar({ onAction }: AgentSidebarProps) {
           };
           setMessages((prev) => [...prev, botMessage]);
         } catch (error) {
+          console.error('❌ Frontend error:', error);
           const errorMessage: AgentMessage = {
             id: Date.now().toString(),
             type: "error",

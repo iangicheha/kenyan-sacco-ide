@@ -74,24 +74,39 @@ import {
   Redo2,
   PanelLeftClose,
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { parseFormula } from '@/lib/formulaParser';
 import { ExcelSheet } from '@/components/ExcelSheet';
 
 export default function Home() {
-  const [selectedFile, setSelectedFile] = useState('Trial Balance - January 2026');
+  type SheetPreviewRow = Record<string, string>;
+  type UploadedSheet = {
+    sheetName: string;
+    headers: string[];
+    previewRows: SheetPreviewRow[];
+    totalRows: number;
+    previewTruncated: boolean;
+    loadedRows: number;
+  };
+  type UploadedFileItem = {
+    name: string;
+    type: 'excel' | 'word' | 'pdf';
+    defaultSheetName: string;
+    activeSheetName: string;
+    sheets: UploadedSheet[];
+  };
+  const emptySheetRows: SheetPreviewRow[] = [];
+
+  const [selectedFile, setSelectedFile] = useState('No file selected');
   const [fileType, setFileType] = useState<'excel' | 'word' | 'pdf'>('excel');
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFileItem[]>([]);
+  const [currentHeaders, setCurrentHeaders] = useState<string[]>([]);
+  const [currentSheetName, setCurrentSheetName] = useState('');
+  const [currentFileMeta, setCurrentFileMeta] = useState<UploadedFileItem | null>(null);
   const [activeTab, setActiveTab] = useState('home');
   const [selectedCell, setSelectedCell] = useState('A1');
   const [cellValue, setCellValue] = useState('');
-  const [excelData, setExcelData] = useState([
-    { A: 'Account', B: 'Debit', C: 'Credit', D: '=B2-C2' },
-    { A: 'Cash', B: 50000, C: 0, D: '=B2-C2' },
-    { A: 'Bank Account', B: 150000, C: 0, D: '=B3-C3' },
-    { A: 'Member Loans', B: 500000, C: 0, D: '=B4-C4' },
-    { A: 'Savings Account', B: 0, C: 600000, D: '=B5-C5' },
-    { A: 'Operating Expenses', B: 25000, C: 0, D: '=B6-C6' },
-  ]);
+  const [excelData, setExcelData] = useState<SheetPreviewRow[]>(emptySheetRows);
   const [wordContent, setWordContent] = useState('SASRA Form 4 - Financial Statement\n\nThis document contains the financial statements for the SACCO as required by SASRA regulations.\n\nPlease review all sections carefully.');
   const [messages, setMessages] = useState([
     { id: 1, type: 'bot', text: "I'm ready to help. You can edit cells and I'll suggest improvements." },
@@ -107,15 +122,228 @@ export default function Home() {
   const [wordSelection, setWordSelection] = useState<{ start: number; end: number } | null>(null);
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
-  const [history, setHistory] = useState<any[]>([excelData]);
+  const [history, setHistory] = useState<any[]>([emptySheetRows]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [aiAssistantVisible, setAiAssistantVisible] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false);
+  const [isLoadingMoreRows, setIsLoadingMoreRows] = useState(false);
 
   const handleFileSelect = (fileName: string, type: 'excel' | 'word' | 'pdf') => {
     setSelectedFile(fileName);
     setFileType(type);
     setSelectedCell('A1');
     setCellValue('');
+
+    const selected = uploadedFiles.find((file) => file.name === fileName);
+    if (selected) {
+      setCurrentFileMeta(selected);
+      const activeSheet =
+        selected.sheets.find((sheet) => sheet.sheetName === selected.activeSheetName) ||
+        selected.sheets.find((sheet) => sheet.sheetName === selected.defaultSheetName) ||
+        selected.sheets[0];
+      setCurrentSheetName(activeSheet?.sheetName || '');
+      setCurrentHeaders(activeSheet?.headers || []);
+      if (activeSheet && activeSheet.previewRows.length > 0) {
+        setExcelData(activeSheet.previewRows);
+        setHistory([activeSheet.previewRows]);
+        setHistoryIndex(0);
+      } else {
+        setExcelData(emptySheetRows);
+        setHistory([emptySheetRows]);
+        setHistoryIndex(0);
+      }
+    }
+  };
+
+  const inferFileType = (fileName: string): 'excel' | 'word' | 'pdf' => {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith('.pdf')) return 'pdf';
+    if (lower.endsWith('.doc') || lower.endsWith('.docx') || lower.endsWith('.txt')) return 'word';
+    return 'excel';
+  };
+
+  const handleUserFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const processUpload = async () => {
+      const files = Array.from(e.target.files || []);
+      if (files.length === 0) return;
+
+      const invalidFiles = files.filter((file) => {
+        const lower = file.name.toLowerCase();
+        return !(lower.endsWith('.csv') || lower.endsWith('.xlsx') || lower.endsWith('.xls'));
+      });
+      if (invalidFiles.length > 0) {
+        toast.error('Only CSV, XLSX, and XLS files are supported for backend parsing.');
+        e.target.value = '';
+        return;
+      }
+
+      const formData = new FormData();
+      files.forEach((file) => formData.append('files', file));
+
+      try {
+        setIsUploadingFiles(true);
+        toast.info('Uploading and parsing files...');
+
+        const response = await fetch('http://localhost:3001/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Upload failed (${response.status})`);
+        }
+
+        const result = await response.json();
+        const serverParsedFiles = Array.isArray(result?.parsedFiles) ? result.parsedFiles : [];
+        const parsedByName = new Map<string, UploadedFileItem>();
+        serverParsedFiles.forEach((file: any) => {
+          const fileName = String(file.fileName || 'uploaded_file.csv');
+          const sheets: UploadedSheet[] = Array.isArray(file.sheets)
+            ? file.sheets.map((sheet: any) => ({
+                sheetName: String(sheet.sheetName || 'Sheet1'),
+                headers: Array.isArray(sheet.headers) ? sheet.headers.map((h: unknown) => String(h)) : [],
+                previewRows: Array.isArray(sheet.previewRows) ? sheet.previewRows : [],
+                totalRows: Number(sheet.totalRows || 0),
+                previewTruncated: Boolean(sheet.previewTruncated),
+                loadedRows: Array.isArray(sheet.previewRows) ? sheet.previewRows.length : 0,
+              }))
+            : [];
+          const defaultSheetName = String(file.defaultSheetName || sheets[0]?.sheetName || 'Sheet1');
+          parsedByName.set(fileName, {
+            name: fileName,
+            type: inferFileType(fileName),
+            defaultSheetName,
+            activeSheetName: defaultSheetName,
+            sheets,
+          });
+        });
+
+        // Always include files the user selected so sidebar stays in sync
+        // even when backend cannot parse preview rows.
+        const mappedFiles: UploadedFileItem[] = files.map((selectedFile) => {
+          const parsed = parsedByName.get(selectedFile.name);
+          return parsed || {
+            name: selectedFile.name,
+            type: inferFileType(selectedFile.name),
+            defaultSheetName: 'Sheet1',
+            activeSheetName: 'Sheet1',
+            sheets: [],
+          };
+        });
+
+        setUploadedFiles((prev) => {
+          const byName = new Map<string, UploadedFileItem>();
+          prev.forEach((file) => byName.set(file.name, file));
+          mappedFiles.forEach((file) => byName.set(file.name, file));
+          return Array.from(byName.values()).reverse();
+        });
+
+        const firstFile = mappedFiles[0];
+        if (firstFile) {
+          setCurrentFileMeta(firstFile);
+          setSelectedFile(firstFile.name);
+          setFileType(firstFile.type);
+          setSelectedCell('A1');
+          setCellValue('');
+          const activeSheet =
+            firstFile.sheets.find((sheet) => sheet.sheetName === firstFile.activeSheetName) ||
+            firstFile.sheets.find((sheet) => sheet.sheetName === firstFile.defaultSheetName) ||
+            firstFile.sheets[0];
+          setCurrentSheetName(activeSheet?.sheetName || '');
+          if (activeSheet && activeSheet.previewRows.length > 0) {
+            setExcelData(activeSheet.previewRows);
+            setHistory([activeSheet.previewRows]);
+            setHistoryIndex(0);
+            setCurrentHeaders(activeSheet.headers);
+          } else {
+            setExcelData(emptySheetRows);
+            setHistory([emptySheetRows]);
+            setHistoryIndex(0);
+            setCurrentHeaders([]);
+          }
+          if (activeSheet?.previewTruncated) {
+            toast.info(`Showing first ${activeSheet.previewRows.length.toLocaleString()} of ${activeSheet.totalRows.toLocaleString()} rows for faster review.`);
+          }
+        }
+        toast.success(`Uploaded ${files.length} file(s) successfully.`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Upload failed.');
+      } finally {
+        setIsUploadingFiles(false);
+        // Allow selecting the same file again later.
+        e.target.value = '';
+      }
+    };
+
+    void processUpload();
+  };
+
+  const handleLoadMoreRows = async () => {
+    if (!currentFileMeta || !currentSheetName) {
+      return;
+    }
+    const activeSheet = currentFileMeta.sheets.find((sheet) => sheet.sheetName === currentSheetName);
+    if (!activeSheet || activeSheet.loadedRows >= activeSheet.totalRows) {
+      return;
+    }
+
+    try {
+      setIsLoadingMoreRows(true);
+      const response = await fetch(
+        `http://localhost:3001/api/upload/preview?fileName=${encodeURIComponent(currentFileMeta.name)}&sheetName=${encodeURIComponent(currentSheetName)}&offset=${activeSheet.loadedRows}&limit=500`
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to load more rows (${response.status})`);
+      }
+      const result = await response.json();
+      const newRows = Array.isArray(result.rows) ? result.rows : [];
+      if (newRows.length === 0) return;
+
+      setExcelData((prev) => [...prev, ...newRows]);
+
+      setUploadedFiles((prev) =>
+        prev.map((file) =>
+          file.name === currentFileMeta.name
+            ? {
+                ...file,
+                sheets: file.sheets.map((sheet) =>
+                  sheet.sheetName === currentSheetName
+                    ? {
+                        ...sheet,
+                        previewRows: [...sheet.previewRows, ...newRows],
+                        loadedRows: Number(result.nextOffset || sheet.loadedRows + newRows.length),
+                        totalRows: Number(result.totalRows || sheet.totalRows),
+                      }
+                    : sheet
+                ),
+              }
+            : file
+        )
+      );
+
+      setCurrentFileMeta((prev) =>
+        prev
+          ? {
+              ...prev,
+              sheets: prev.sheets.map((sheet) =>
+                sheet.sheetName === currentSheetName
+                  ? {
+                      ...sheet,
+                      previewRows: [...sheet.previewRows, ...newRows],
+                      loadedRows: Number(result.nextOffset || sheet.loadedRows + newRows.length),
+                      totalRows: Number(result.totalRows || sheet.totalRows),
+                    }
+                  : sheet
+              ),
+            }
+          : prev
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not load more rows');
+    } finally {
+      setIsLoadingMoreRows(false);
+    }
   };
 
   const handleCellClick = (row: number, col: string) => {
@@ -251,19 +479,38 @@ export default function Home() {
   };
 
   const handleReload = () => {
-    setExcelData([
-      { A: 'Account', B: 'Debit', C: 'Credit', D: '=B2-C2' },
-      { A: 'Cash', B: 50000, C: 0, D: '=B2-C2' },
-      { A: 'Bank Account', B: 150000, C: 0, D: '=B3-C3' },
-      { A: 'Member Loans', B: 500000, C: 0, D: '=B4-C4' },
-      { A: 'Savings Account', B: 0, C: 600000, D: '=B5-C5' },
-      { A: 'Operating Expenses', B: 25000, C: 0, D: '=B6-C6' },
-    ]);
-    setHistory([excelData]);
+    setExcelData(emptySheetRows);
+    setHistory([emptySheetRows]);
     setHistoryIndex(0);
     setSelectedCell('A1');
     setCellValue('');
-    toast.success('Data reloaded');
+    setCurrentHeaders([]);
+    setCurrentSheetName('');
+    toast.success('Sheet cleared');
+  };
+
+  const handleSheetChange = (sheetName: string) => {
+    if (!currentFileMeta) return;
+    const target = currentFileMeta.sheets.find((sheet) => sheet.sheetName === sheetName);
+    if (!target) return;
+
+    setCurrentSheetName(sheetName);
+    setCurrentHeaders(target.headers);
+    setExcelData(target.previewRows);
+    setHistory([target.previewRows]);
+    setHistoryIndex(0);
+    setSelectedCell('A1');
+    setCellValue('');
+
+    setUploadedFiles((prev) =>
+      prev.map((file) =>
+        file.name === currentFileMeta.name
+          ? { ...file, activeSheetName: sheetName }
+          : file
+      )
+    );
+
+    setCurrentFileMeta((prev) => (prev ? { ...prev, activeSheetName: sheetName } : prev));
   };
 
   const RibbonButton = ({ icon: Icon, label, onClick }: any) => (
@@ -286,15 +533,40 @@ export default function Home() {
 
   // Excel Viewer - using new ExcelSheet component
   const ExcelViewer = () => (
-    <ExcelSheet
-      data={excelData}
-      onDataChange={setExcelData}
-      selectedCell={selectedCell}
-      onCellSelect={setSelectedCell}
-      editingCell={editingCell}
-      onEditStart={setEditingCell}
-      onEditEnd={() => setEditingCell(null)}
-    />
+    <div className="h-full flex flex-col">
+      {currentFileMeta && currentFileMeta.sheets.length > 1 && (
+        <div className="px-4 py-2 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
+          <span className="text-xs text-slate-600">Sheet:</span>
+          <select
+            value={currentSheetName}
+            onChange={(e) => handleSheetChange(e.target.value)}
+            className="text-xs border border-slate-300 rounded px-2 py-1 bg-white"
+          >
+            {currentFileMeta.sheets.map((sheet) => (
+              <option key={sheet.sheetName} value={sheet.sheetName}>
+                {sheet.sheetName}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      <ExcelSheet
+        data={excelData}
+        onDataChange={setExcelData}
+        selectedCell={selectedCell}
+        onCellSelect={setSelectedCell}
+        editingCell={editingCell}
+        onEditStart={setEditingCell}
+        onEditEnd={() => setEditingCell(null)}
+        columnHeaders={currentHeaders}
+        onLoadMoreRows={handleLoadMoreRows}
+        canLoadMoreRows={Boolean(currentFileMeta && currentSheetName && (() => {
+          const activeSheet = currentFileMeta.sheets.find((sheet) => sheet.sheetName === currentSheetName);
+          return activeSheet ? activeSheet.loadedRows < activeSheet.totalRows : false;
+        })())}
+        isLoadingMoreRows={isLoadingMoreRows}
+      />
+    </div>
   );
 
   // Word Viewer
@@ -510,17 +782,15 @@ export default function Home() {
           {/* File List */}
           <ScrollArea className="flex-1">
             <div className={sidebarExpanded ? 'px-4 py-2 space-y-1' : 'px-2 py-2 space-y-2'}>
-              {[
-                { name: 'Trial Balance - January 2026', type: 'excel', icon: Grid3x3 },
-                { name: 'M-Pesa Statements', type: 'pdf', icon: FileText },
-                { name: 'Member Register', type: 'excel', icon: Grid3x3 },
-                { name: 'Loan Listing', type: 'excel', icon: Grid3x3 },
-                { name: 'SASRA Form 4', type: 'word', icon: FileText },
-                { name: 'Audit Report', type: 'pdf', icon: FileText },
-              ].map((file: any, idx) => (
+              {uploadedFiles.length === 0 && sidebarExpanded && (
+                <p className="text-xs text-slate-500 px-3 py-2">
+                  No files yet. Click Upload File to add your own.
+                </p>
+              )}
+              {uploadedFiles.map((file, idx) => (
                 <button
                   key={idx}
-                  onClick={() => handleFileSelect(file.name, file.type as 'excel' | 'word' | 'pdf')}
+                  onClick={() => handleFileSelect(file.name, file.type)}
                   className={`flex items-center gap-3 rounded-lg transition-colors ${
                     selectedFile === file.name
                       ? 'bg-blue-50 text-blue-600'
@@ -528,7 +798,11 @@ export default function Home() {
                   } ${sidebarExpanded ? 'w-full px-3 py-2 text-left' : 'w-10 h-10 mx-auto justify-center'}`}
                   title={sidebarExpanded ? '' : file.name}
                 >
-                  <file.icon className="w-4 h-4 flex-shrink-0" />
+                  {file.type === 'excel' ? (
+                    <Grid3x3 className="w-4 h-4 flex-shrink-0" />
+                  ) : (
+                    <FileText className="w-4 h-4 flex-shrink-0" />
+                  )}
                   {sidebarExpanded && <span className="text-xs font-medium truncate">{file.name}</span>}
                 </button>
               ))}
@@ -538,8 +812,20 @@ export default function Home() {
           {/* Upload Button */}
           {sidebarExpanded && (
             <div className="p-4 border-t border-slate-200">
-              <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs gap-2">
-                <Upload className="w-4 h-4" /> Upload File
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                onChange={handleUserFileUpload}
+                className="hidden"
+                accept=".csv,.xlsx,.xls,.pdf,.doc,.docx,.txt"
+              />
+              <Button
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs gap-2"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingFiles}
+              >
+                <Upload className="w-4 h-4" /> {isUploadingFiles ? 'Uploading...' : 'Upload File'}
               </Button>
             </div>
           )}

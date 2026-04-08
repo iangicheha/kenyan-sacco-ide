@@ -95,6 +95,13 @@ export default function Home() {
     activeSheetName: string;
     sheets: UploadedSheet[];
   };
+  type PendingOperation = {
+    id: string;
+    address: string;
+    sheet: string;
+    rationale: string;
+    tool: string;
+  };
   const emptySheetRows: SheetPreviewRow[] = [];
 
   const [selectedFile, setSelectedFile] = useState('No file selected');
@@ -113,6 +120,8 @@ export default function Home() {
   ]);
   const [agentInput, setAgentInput] = useState('');
   const [isAiThinking, setIsAiThinking] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [pendingOperations, setPendingOperations] = useState<PendingOperation[]>([]);
   const [ribbonExpanded, setRibbonExpanded] = useState(true);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [fontSize, setFontSize] = useState('11');
@@ -129,6 +138,104 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isUploadingFiles, setIsUploadingFiles] = useState(false);
   const [isLoadingMoreRows, setIsLoadingMoreRows] = useState(false);
+
+  const refreshPendingOperations = async (currentSessionId: string) => {
+    const response = await fetch(
+      `http://localhost:3001/pending?sessionId=${encodeURIComponent(currentSessionId)}`
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to load pending operations (${response.status})`);
+    }
+    const data = await response.json();
+    const pending = Array.isArray(data?.pending) ? data.pending : [];
+    setPendingOperations(pending);
+    return pending;
+  };
+
+  const runQuickPrompt = async (prompt: string) => {
+    if (!sessionId) {
+      toast.error('Upload a spreadsheet first to start a review session.');
+      return;
+    }
+
+    setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: prompt }]);
+    setIsAiThinking(true);
+    try {
+      const response = await fetch('http://localhost:3001/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, message: prompt }),
+      });
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Chat failed (${response.status}) ${body}`.trim());
+      }
+      const result = await response.json();
+      const aiMessage = typeof result?.message === 'string'
+        ? result.message
+        : 'Analysis complete. Review pending changes.';
+      setMessages((prev) => [...prev, { id: Date.now() + 1, type: 'bot', text: aiMessage }]);
+      const pending = await refreshPendingOperations(sessionId);
+      if (pending.length > 0) {
+        toast.info(`${pending.length} pending change(s) ready for review.`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown AI error';
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now() + 2, type: 'bot', text: `AI error: ${message}` },
+      ]);
+      toast.error(message);
+    } finally {
+      setIsAiThinking(false);
+    }
+  };
+
+  const reviewNextOperation = async (decision: 'accept' | 'reject') => {
+    if (!sessionId) {
+      toast.error('No active session.');
+      return;
+    }
+    if (pendingOperations.length === 0) {
+      toast.info('No pending operations to review.');
+      return;
+    }
+    const first = pendingOperations[0];
+    const response = await fetch(`http://localhost:3001/${decision}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, operationId: first.id }),
+    });
+    const result = await response.json();
+    if (!response.ok || result?.success === false) {
+      throw new Error(result?.message || `${decision} failed`);
+    }
+    await refreshPendingOperations(sessionId);
+    toast.success(result?.message || `Operation ${decision}ed.`);
+  };
+
+  const exportCurrentSession = async () => {
+    if (!sessionId) {
+      toast.error('No active session.');
+      return;
+    }
+    const response = await fetch(
+      `http://localhost:3001/export?sessionId=${encodeURIComponent(sessionId)}`
+    );
+    if (!response.ok) {
+      throw new Error(`Export failed (${response.status})`);
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `meridian_export_${sessionId}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+    toast.success('Export downloaded.');
+  };
 
   const handleFileSelect = (fileName: string, type: 'excel' | 'word' | 'pdf') => {
     setSelectedFile(fileName);
@@ -265,6 +372,30 @@ export default function Home() {
           }
           if (activeSheet?.previewTruncated) {
             toast.info(`Showing first ${activeSheet.previewRows.length.toLocaleString()} of ${activeSheet.totalRows.toLocaleString()} rows for faster review.`);
+          }
+        }
+
+        // Initialize Meridian review session from first selected file.
+        const firstSelected = files[0];
+        if (firstSelected) {
+          const sessionForm = new FormData();
+          sessionForm.append('file', firstSelected);
+          const sessionRes = await fetch('http://localhost:3001/upload', {
+            method: 'POST',
+            body: sessionForm,
+          });
+          if (sessionRes.ok) {
+            const sessionData = await sessionRes.json();
+            const newSessionId = typeof sessionData?.sessionId === 'string'
+              ? sessionData.sessionId
+              : null;
+            setSessionId(newSessionId);
+            setPendingOperations([]);
+            if (newSessionId) {
+              toast.success(`Review session ready (${newSessionId}).`);
+            }
+          } else {
+            toast.error('Files uploaded, but review session could not be initialized.');
           }
         }
         toast.success(`Uploaded ${files.length} file(s) successfully.`);
@@ -448,38 +579,8 @@ export default function Home() {
     const userText = agentInput.trim();
     if (!userText || isAiThinking) return;
 
-    const userMessage = { id: Date.now(), type: 'user', text: userText };
-    setMessages((prev) => [...prev, userMessage]);
     setAgentInput('');
-    setIsAiThinking(true);
-
-    try {
-      const response = await fetch('http://localhost:3001/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userText }),
-      });
-
-      if (!response.ok) {
-        const bodyText = await response.text();
-        throw new Error(`AI request failed (${response.status}) ${bodyText}`.trim());
-      }
-
-      const data = await response.json();
-      const aiText = typeof data?.response === 'string' && data.response.trim()
-        ? data.response
-        : 'I could not generate a response. Please try again.';
-
-      setMessages((prev) => [...prev, { id: Date.now() + 1, type: 'bot', text: aiText }]);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown AI error';
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now() + 2, type: 'bot', text: `AI error: ${message}` },
-      ]);
-    } finally {
-      setIsAiThinking(false);
-    }
+    await runQuickPrompt(userText);
   };
 
   const addToHistory = (newData: any) => {
@@ -1107,6 +1208,9 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-blue-600" />
               <h3 className="text-sm font-semibold text-slate-900">AI Assistant</h3>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                Pending: {pendingOperations.length}
+              </span>
             </div>
             <div className="flex items-center gap-1">
               <Button size="sm" variant="ghost" className="text-slate-600 hover:text-slate-900">
@@ -1137,11 +1241,43 @@ export default function Home() {
             <Button variant="outline" className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2">
               <Play className="w-3 h-3" /> Run Audit
             </Button>
-            <Button variant="outline" className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2">
+            <Button
+              variant="outline"
+              className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2"
+              onClick={() => void runQuickPrompt('Run a forensic audit and flag suspicious records.')}
+            >
               <Download className="w-3 h-3" /> Clean Data
             </Button>
-            <Button variant="outline" className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2">
+            <Button
+              variant="outline"
+              className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2"
+              onClick={() => void runQuickPrompt('Apply SASRA Form 4 provisioning for current sheet.')}
+            >
               <FileText className="w-3 h-3" /> SASRA Form 4
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2"
+              onClick={() => void reviewNextOperation('accept')}
+              disabled={pendingOperations.length === 0}
+            >
+              <Sparkles className="w-3 h-3" /> Accept Next Change
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2"
+              onClick={() => void reviewNextOperation('reject')}
+              disabled={pendingOperations.length === 0}
+            >
+              <X className="w-3 h-3" /> Reject Next Change
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full text-slate-600 border-slate-200 hover:bg-slate-50 text-xs justify-start gap-2"
+              onClick={() => void exportCurrentSession()}
+              disabled={!sessionId}
+            >
+              <Download className="w-3 h-3" /> Export Session
             </Button>
           </div>
 

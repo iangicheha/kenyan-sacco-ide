@@ -9,10 +9,38 @@ import Groq from 'groq-sdk';
 import XLSX from 'xlsx';
 
 import { Member, MpesaTransaction, AuditLog, MergedData } from '../shared/types';
-import { MeridianSemanticEngine } from './semantic_engine';
+import { normalizePhone } from './tool_registry';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function loadEnvFromRoot() {
+  const envPath = path.join(__dirname, '..', '.env');
+  if (!fs.existsSync(envPath)) return;
+
+  const content = fs.readFileSync(envPath, 'utf8');
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const separatorIndex = line.indexOf('=');
+    if (separatorIndex <= 0) continue;
+
+    const key = line.slice(0, separatorIndex).trim();
+    let value = line.slice(separatorIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    if (!(key in process.env)) {
+      process.env[key] = value;
+    }
+  }
+}
+
+loadEnvFromRoot();
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -43,6 +71,67 @@ function parseNumeric(value: unknown): number {
 function toIsoDateOrNow(value: unknown): string {
   const parsed = new Date(String(value ?? ''));
   return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+}
+
+function analyzeForensics(
+  members: Member[],
+  transactions: MpesaTransaction[]
+): AuditLog[] {
+  const logs: AuditLog[] = [];
+  const memberByPhone = new Map<string, Member>();
+
+  for (const member of members) {
+    memberByPhone.set(normalizePhone(member.phoneNumber), member);
+  }
+
+  const totalByPhone = new Map<string, number>();
+  for (const tx of transactions) {
+    if (tx.type !== 'PAYMENT') continue;
+    const phone = normalizePhone(tx.phoneNumber);
+    totalByPhone.set(phone, (totalByPhone.get(phone) ?? 0) + tx.amount);
+
+    if (!memberByPhone.has(phone)) {
+      logs.push({
+        id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type: 'MISSING_RECORD',
+        memberId: 'UNKNOWN',
+        description: `Payment received from unregistered phone ${phone}.`,
+        amount: tx.amount,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  for (const member of members) {
+    const normalizedPhone = normalizePhone(member.phoneNumber);
+    const paid = totalByPhone.get(normalizedPhone) ?? 0;
+    const expected = Number.isFinite(member.expectedContribution)
+      ? member.expectedContribution
+      : 0;
+    const variance = paid - expected;
+
+    if (variance < 0) {
+      logs.push({
+        id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type: 'DISCREPANCY',
+        memberId: member.memberId,
+        description: `Contribution shortfall for ${member.name}: expected KES ${expected.toLocaleString()}, received KES ${paid.toLocaleString()}.`,
+        amount: Math.abs(variance),
+        timestamp: new Date().toISOString(),
+      });
+    } else if (variance > 0) {
+      logs.push({
+        id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type: 'OVERPAYMENT',
+        memberId: member.memberId,
+        description: `Overpayment for ${member.name}: expected KES ${expected.toLocaleString()}, received KES ${paid.toLocaleString()}.`,
+        amount: variance,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  return logs;
 }
 
 function columnIndexToName(index: number): string {
@@ -250,7 +339,7 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
           members.push({
             memberId: String(row.memberId || row['Member ID'] || ''),
             name: String(row.name || row['Name'] || ''),
-            phoneNumber: MeridianSemanticEngine.normalizePhone(String(row.phoneNumber || row['Phone Number'] || '')),
+            phoneNumber: normalizePhone(String(row.phoneNumber || row['Phone Number'] || '')),
             expectedContribution: parseNumeric(row.expectedContribution || row['Expected Contribution']),
             recordedPayments: parseNumeric(row.recordedPayments || row['Recorded Payments']),
           });
@@ -262,7 +351,7 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
           if (!(row.transactionId || row['Transaction ID'] || row.mpesaCode || row['M-Pesa Code'])) return;
           mpesaTransactions.push({
             transactionId: String(row.transactionId || row['Transaction ID'] || row.mpesaCode || row['M-Pesa Code'] || ''),
-            phoneNumber: MeridianSemanticEngine.normalizePhone(String(row.phoneNumber || row['Phone Number'] || '')),
+            phoneNumber: normalizePhone(String(row.phoneNumber || row['Phone Number'] || '')),
             amount: parseNumeric(row.amount || row['Amount']),
             date: toIsoDateOrNow(row.date || row['Date']),
             type: String(row.type || row['Type'] || 'PAYMENT').toUpperCase() as 'PAYMENT' | 'WITHDRAWAL' | 'DEPOSIT',
@@ -336,7 +425,7 @@ app.get('/api/upload/preview', (req, res) => {
 
 // API endpoint for audit analysis
 app.post('/api/audit', (req, res) => {
-  const auditLogs = MeridianSemanticEngine.analyzeForensics(currentMergedData.members, currentMergedData.mpesaTransactions);
+  const auditLogs = analyzeForensics(currentMergedData.members, currentMergedData.mpesaTransactions);
   currentMergedData.auditLogs = auditLogs;
   res.status(200).json({ message: 'Audit analysis complete.', auditLogs: currentMergedData.auditLogs });
 });
@@ -346,12 +435,19 @@ app.post('/api/ai/chat', async (req, res) => {
   const { message } = req.body;
   const messageLength = typeof message === 'string' ? message.length : 0;
   const messagePreview = buildSafeLogPreview(message);
+  const groqApiKey = process.env.GROQ_API_KEY;
 
   console.log('[AI Chat] Request received', { messageLength, messagePreview });
+
+  if (!groqApiKey) {
+    return res.status(500).json({
+      message: 'GROQ_API_KEY is missing. Add it to the project .env file.',
+    });
+  }
   
   try {
     const groq = new Groq({
-      apiKey: process.env.GROQ_API_KEY,
+      apiKey: groqApiKey,
     });
 
     console.log('[AI Chat] Calling Groq API');

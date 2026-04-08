@@ -46,12 +46,13 @@ The IDE follows a **"Local-First, Cloud-Powered"** architecture with three main 
 -   **Accessibility First:** Keyboard navigation, clear focus states, high contrast.
 
 ### **Technology Stack**
-
 -   **Frontend:** React 19, Tailwind CSS 4, TypeScript, Vite, pnpm.
 -   **UI Components:** shadcn/ui (Radix UI primitives), Lucide React.
--   **Backend:** Node.js Express, `groq-sdk`, `multer`, `csv-parser`, `fpdf2` (for PDF generation).
+-   **Backend:** Node.js Express + TypeScript, `groq-sdk`, `multer`, `csv-parser`.
+-   **LLM Provider:** Groq (tool-calling, low temperature for deterministic financial outputs).
+- **Spreadsheet:** `xlsx` parsing + in-memory cell graph
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Prerequisites
 
@@ -84,6 +85,92 @@ pnpm dev
 
 The IDE will be available at `http://localhost:3000` and the API server at `http://localhost:3001`.
 
+##  Backend: Meridian-style Spreadsheet Engine
+
+The backend implements a **staged-diff** spreadsheet workflow (similar to how a code IDE stages edits):
+
+- **Parse**: uploads are parsed into an in-memory `Map<address, Cell>` graph
+- **Propose**: the LLM proposes targeted cell-level operations (writes are staged, not committed)
+- **Review**: UI shows diffs (old vs new), user accepts/rejects per operation
+- **Commit**: accepted ops commit to the live cell graph; rejections are discarded
+- **Audit trail**: every accept/reject is logged with timestamp + rationale (SASRA traceability)
+
+### Key backend modules
+
+- `server/cell_graph.ts`: parses xlsx/csv into a live cell graph; supports staged writes (`proposeWrite`), commit/reject, export back to `.xlsx`
+- `server/tool_registry.ts`: Kenyan SACCO domain logic exposed as typed tools (`read_cell`, `write_formula`, SASRA provisioning, phone normalization, forensic flags)
+- `server/diff_store.ts`: pending operations + accept/reject + audit log (who/when/why)
+- `server/semantic_engine.ts`: orchestrator (session init, agent loop with tool calls, export, audit queries)
+
+##  API (Standalone Server)
+
+For quick iteration, `server_standalone.js` exposes a minimal API for the staged spreadsheet engine.
+
+### Run the standalone server
+
+```bash
+node server_standalone.js
+```
+
+> Ensure `GROQ_API_KEY` is set in your environment (or `.env` if you load it elsewhere).
+
+### Routes
+
+- `POST /upload` → initialize a spreadsheet session (`initSession`)
+  - multipart form-data: `file=@your.xlsx`
+  - optional: `sessionId` (body or query). If omitted, server generates one.
+- `POST /chat` → agent turn (`runAgentTurn`)
+  - JSON body: `{ "sessionId": "...", "message": "..." }`
+- `POST /accept` → accept a pending operation (`acceptOperation`)
+  - JSON body: `{ "sessionId": "...", "operationId": "op_..." }`
+- `POST /reject` → reject a pending operation (`rejectOperation`)
+  - JSON body: `{ "sessionId": "...", "operationId": "op_..." }`
+- `GET /export?sessionId=...` → download the current committed workbook (`exportSession`)
+- `GET /audit-log?sessionId=...` → export audit log (accept/reject decisions + rationales)
+
+Convenience routes (useful for UI state + SASRA drilldowns):
+
+- `GET /pending?sessionId=...` → current diff panel items (`getPendingOperations`)
+- `GET /cell-history?sessionId=...&address=D47&sheet=Loans` → “why did this cell change?” timeline (`getCellHistory`)
+- `GET /summary?sessionId=...` → accepted/rejected/pending counters (`getSessionSummary`)
+
+### Example workflow (curl)
+
+Upload a workbook and start a session:
+
+```bash
+curl -s -X POST "http://localhost:3001/upload" ^
+  -F "file=@C:\\path\\to\\loan_listing.xlsx"
+```
+
+Send a chat instruction:
+
+```bash
+curl -s -X POST "http://localhost:3001/chat" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"sessionId\":\"YOUR_SESSION\",\"message\":\"Run SASRA Form 4 provisioning for rows 2 to 250\"}"
+```
+
+Fetch pending diffs:
+
+```bash
+curl -s "http://localhost:3001/pending?sessionId=YOUR_SESSION"
+```
+
+Accept one operation:
+
+```bash
+curl -s -X POST "http://localhost:3001/accept" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"sessionId\":\"YOUR_SESSION\",\"operationId\":\"op_...\"}"
+```
+
+Export the committed workbook:
+
+```bash
+curl -L "http://localhost:3001/export?sessionId=YOUR_SESSION" -o meridian_export.xlsx
+```
+
 ### Build for Production
 
 ```bash
@@ -91,7 +178,7 @@ pnpm build
 pnpm start
 ```
 
-## 📋 Features
+##  Features
 
 ### **Ribbon Menu**
 
@@ -123,7 +210,7 @@ pnpm start
 -   Message types: User, Agent, Action, Error, Success.
 -   Action confirmation and multi-step workflows.
 
-## 🔐 Data Privacy & Security
+##  Data Privacy & Security
 
 The IDE follows a **"Zero-Knowledge"** privacy model:
 
@@ -133,18 +220,29 @@ The IDE follows a **"Zero-Knowledge"** privacy model:
 -   **No Training on Private Data:** Models are pre-trained on public SASRA regulations and anonymized data.
 -   **Encrypted Storage:** All data is encrypted in transit and at rest.
 
-## 📚 Project Structure
+##  Project Structure
 
 ```
 kenyan-sacco-ide/
 ├── client/                  # Frontend (React, Tailwind, Vite)
 │   ├── public/
 │   ├── src/
-│   └── index.html
-├── server/                  # Backend (Node.js Express, Groq API)
-│   ├── generate_pdf.py      # Python script for PDF generation
-│   ├── semantic_engine.ts   # Meridian AI's core logic
-│   └── server_standalone.js # Main API server
+│   │   ├── components/      # Reusable UI components
+│   │   │   ├── RibbonMenu.tsx
+│   │   │   ├── SpreadsheetGrid.tsx
+│   │   │   ├── AgentSidebar.tsx
+│   │   │   └── FileExplorer.tsx
+│   │   ├── pages/           # Page-level components
+│   │   │   └── Home.tsx
+│   │   ├── contexts/        # React contexts
+│   │   ├── hooks/           # Custom React hooks
+│   │   ├── lib/             # Utility helpers
+│   │   ├── App.tsx          # Routes and top-level layout
+│   │   ├── main.tsx         # React entry point
+│   │   └── index.css        # Global styles and design tokens
+│   └── index.html           # HTML template
+├── server/                  # Backend (agentic spreadsheet engine + API)
+├── server_standalone.js      # Standalone API for staged spreadsheet engine
 ├── shared/                  # Shared types and constants
 ├── docs/                    # Documentation (Groq setup, etc.)
 ├── .env.example             # Environment variable example
@@ -156,7 +254,7 @@ kenyan-sacco-ide/
 └── LICENSE
 ```
 
-## 🎨 Design System
+##  Design System
 
 ### **Color Palette**
 
@@ -177,7 +275,7 @@ kenyan-sacco-ide/
 -   **Padding:** 8px (sm), 12px (md), 16px (lg), 24px (xl)
 -   **Gap:** 8px (tight), 12px (normal), 16px (loose)
 
-## 🛠️ Development
+##  Development
 
 ### Available Scripts
 
@@ -212,7 +310,7 @@ pnpm format
 -   Avoid inline styles; use CSS classes instead
 -   Maintain dark mode consistency with theme variables
 
-## 📖 Usage Examples
+##  Usage Examples
 
 ### Running an Audit
 
@@ -237,25 +335,22 @@ pnpm format
 4.  The agent will normalize dates, remove duplicates, and fix formatting.
 5.  Review and apply changes.
 
-## 🔄 Roadmap
+##  Roadmap
 
 ### Phase 1 (Completed)
 
 -   ✅ Frontend IDE with ribbon menu and spreadsheet grid
 -   ✅ Agentic sidebar for user interaction
 -   ✅ File explorer for document management
--   ✅ Backend API with Groq Cloud LLM integration (Llama-3.3-70B-Versatile)
--   ✅ Real data cleaning and normalization
--   ✅ SASRA compliance engine
--   ✅ M-Pesa statement parsing
--   ✅ Boardroom-Ready PDF Report Generation
+-   ✅ Backend API with Groq Cloud LLM integration.
+-   ✅ Staged-diff spreadsheet engine (cell graph + tools + accept/reject + audit log).
+-   ✅ SASRA compliance and forensic helper tools.
 
 ### Phase 2 (Planned)
 
--   Real-time collaboration (multi-user editing)
--   Advanced analytics and member scoring
--   Dividend calculation automation
--   Export to official SASRA templates
+-   Expand spreadsheet tool coverage (more SASRA templates, validation rules, richer diff UX).
+-   Persist sessions/audit logs (DB-backed) for multi-user and longer-lived reviews.
+-   M-Pesa statement parsing + reconciliation tools.
 
 ### Phase 3 (Planned)
 
@@ -264,7 +359,7 @@ pnpm format
 -   Blockchain-based audit trails
 -   Self-hosted deployment option
 
-## 🤝 Contributing
+##  Contributing
 
 Contributions are welcome! Please follow these guidelines:
 
@@ -274,11 +369,11 @@ Contributions are welcome! Please follow these guidelines:
 4.  Push to the branch (`git push origin feature/amazing-feature`)
 5.  Open a Pull Request
 
-## 📝 License
+##  License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+##  Acknowledgments
 
 -   **Meridian AI** - Inspiration for the agentic spreadsheet architecture
 -   **SASRA (Savings and Credit Cooperative Societies Regulatory Authority)** - Regulatory framework and compliance guidelines
@@ -287,7 +382,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 -   **shadcn/ui** - For the excellent UI component library
 -   **Tailwind CSS** - For the utility-first CSS framework
 
-## 📞 Support & Contact
+##  Support & Contact
 
 For questions, issues, or feedback:
 
@@ -295,7 +390,7 @@ For questions, issues, or feedback:
 -   **Email:** support@saccoide.ke
 -   **Documentation:** [Full docs](https://docs.saccoide.ke)
 
-## 🌍 Kenyan Financial Sector Context
+##  Kenyan Financial Sector Context
 
 The Kenyan financial sector is undergoing rapid digital transformation. SACCOs, which serve over 10 million members, are at the forefront of financial inclusion. However, many still rely on manual Excel-based workflows that are error-prone and difficult to audit.
 
@@ -308,6 +403,6 @@ The **Kenyan SACCO IDE** bridges this gap by providing:
 
 ---
 
-**Built with ❤️ for Kenyan SACCOs**
+**Built for Kenyan SACCOs**
 
 *"Turning messy data into financial intelligence"*

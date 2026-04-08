@@ -191,20 +191,18 @@ export default function Home() {
     }
   };
 
-  const reviewNextOperation = async (decision: 'accept' | 'reject') => {
+  const reviewOperation = async (
+    operationId: string,
+    decision: 'accept' | 'reject'
+  ) => {
     if (!sessionId) {
       toast.error('No active session.');
       return;
     }
-    if (pendingOperations.length === 0) {
-      toast.info('No pending operations to review.');
-      return;
-    }
-    const first = pendingOperations[0];
     const response = await fetch(`http://localhost:3001/${decision}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, operationId: first.id }),
+      body: JSON.stringify({ sessionId, operationId }),
     });
     const result = await response.json();
     if (!response.ok || result?.success === false) {
@@ -212,6 +210,14 @@ export default function Home() {
     }
     await refreshPendingOperations(sessionId);
     toast.success(result?.message || `Operation ${decision}ed.`);
+  };
+
+  const reviewNextOperation = async (decision: 'accept' | 'reject') => {
+    if (pendingOperations.length === 0) {
+      toast.info('No pending operations to review.');
+      return;
+    }
+    await reviewOperation(pendingOperations[0].id, decision);
   };
 
   const exportCurrentSession = async () => {
@@ -1279,6 +1285,50 @@ export default function Home() {
             >
               <Download className="w-3 h-3" /> Export Session
             </Button>
+          </div>
+
+          {/* Pending Operations List */}
+          <div className="px-4 pb-4 border-t border-slate-200">
+            <p className="text-xs font-semibold text-slate-600 uppercase mt-3 mb-2">
+              Pending Changes
+            </p>
+            <div className="max-h-44 overflow-auto space-y-2">
+              {pendingOperations.length === 0 ? (
+                <p className="text-[11px] text-slate-500">No pending changes.</p>
+              ) : (
+                pendingOperations.slice(0, 8).map((op) => (
+                  <div
+                    key={op.id}
+                    className="rounded border border-slate-200 p-2 bg-slate-50"
+                  >
+                    <div className="text-[11px] font-medium text-slate-800">
+                      {op.sheet}!{op.address} · {op.tool}
+                    </div>
+                    <div className="text-[10px] text-slate-600 mt-1 line-clamp-2">
+                      {op.rationale}
+                    </div>
+                    <div className="mt-2 flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-[10px]"
+                        onClick={() => void reviewOperation(op.id, 'accept')}
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-[10px]"
+                        onClick={() => void reviewOperation(op.id, 'reject')}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
           {/* Input */}

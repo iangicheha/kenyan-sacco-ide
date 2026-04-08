@@ -112,6 +112,7 @@ export default function Home() {
     { id: 1, type: 'bot', text: "I'm ready to help. You can edit cells and I'll suggest improvements." },
   ]);
   const [agentInput, setAgentInput] = useState('');
+  const [isAiThinking, setIsAiThinking] = useState(false);
   const [ribbonExpanded, setRibbonExpanded] = useState(true);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [fontSize, setFontSize] = useState('11');
@@ -443,13 +444,41 @@ export default function Home() {
     }
   };
 
-  const handleSendMessage = () => {
-    if (agentInput.trim()) {
-      setMessages([...messages, { id: messages.length + 1, type: 'user', text: agentInput }]);
-      setTimeout(() => {
-        setMessages((prev) => [...prev, { id: prev.length + 1, type: 'bot', text: 'Processing your request...' }]);
-      }, 500);
-      setAgentInput('');
+  const handleSendMessage = async () => {
+    const userText = agentInput.trim();
+    if (!userText || isAiThinking) return;
+
+    const userMessage = { id: Date.now(), type: 'user', text: userText };
+    setMessages((prev) => [...prev, userMessage]);
+    setAgentInput('');
+    setIsAiThinking(true);
+
+    try {
+      const response = await fetch('http://localhost:3001/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userText }),
+      });
+
+      if (!response.ok) {
+        const bodyText = await response.text();
+        throw new Error(`AI request failed (${response.status}) ${bodyText}`.trim());
+      }
+
+      const data = await response.json();
+      const aiText = typeof data?.response === 'string' && data.response.trim()
+        ? data.response
+        : 'I could not generate a response. Please try again.';
+
+      setMessages((prev) => [...prev, { id: Date.now() + 1, type: 'bot', text: aiText }]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown AI error';
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now() + 2, type: 'bot', text: `AI error: ${message}` },
+      ]);
+    } finally {
+      setIsAiThinking(false);
     }
   };
 
@@ -1124,8 +1153,14 @@ export default function Home() {
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
               placeholder="Ask AI..."
               className="text-xs"
+              disabled={isAiThinking}
             />
-            <Button size="sm" onClick={handleSendMessage} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Button
+              size="sm"
+              onClick={handleSendMessage}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              disabled={isAiThinking || !agentInput.trim()}
+            >
               <Send className="w-3 h-3" />
             </Button>
           </div>

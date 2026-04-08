@@ -162,7 +162,35 @@ export async function runAgentTurn(
   const allOperations: import("./tool_registry").CellOperation[] = [];
   const allCellLinks: import("./tool_registry").CellLink[] = [];
   const toolsInvoked: string[] = [];
+  const readAddresses = new Set<string>();
   let finalMessage = "";
+
+  const hasReadCoverage = (col: string, startRow: number, endRow: number): boolean => {
+    const upperCol = String(col ?? "").trim().toUpperCase();
+    if (!/^[A-Z]{1,3}$/.test(upperCol)) return false;
+    if (!Number.isInteger(startRow) || !Number.isInteger(endRow) || startRow > endRow) {
+      return false;
+    }
+    for (let row = startRow; row <= endRow; row++) {
+      if (!readAddresses.has(`${upperCol}${row}`)) return false;
+    }
+    return true;
+  };
+
+  const explainMissingReads = (
+    col: string,
+    startRow: number,
+    endRow: number
+  ): string[] => {
+    const upperCol = String(col ?? "").trim().toUpperCase();
+    const missing: string[] = [];
+    for (let row = startRow; row <= endRow; row++) {
+      const addr = `${upperCol}${row}`;
+      if (!readAddresses.has(addr)) missing.push(addr);
+      if (missing.length >= 5) break;
+    }
+    return missing;
+  };
 
   // Agentic loop — the LLM can call multiple tools before giving a final response
   let iterations = 0;
@@ -229,8 +257,65 @@ export async function runAgentTurn(
         rationale: (args.rationale as string) ?? "",
       };
 
+      // Guardrail: direct writes require read_cell first in same turn.
+      if (
+        (fnName === "write_formula" || fnName === "write_value") &&
+        typeof args.address === "string"
+      ) {
+        const upper = String(args.address).toUpperCase();
+        if (!readAddresses.has(upper)) {
+          toolResults.push(
+            `Guardrail blocked ${fnName}(${upper}): call read_cell first.`
+          );
+          continue;
+        }
+      }
+
+      // Guardrail: batch writes require read coverage for relevant ranges.
+      if (fnName === "normalize_phone_column") {
+        const col = String(args.col ?? "").toUpperCase();
+        const startRow = Number(args.startRow);
+        const endRow = Number(args.endRow);
+        if (!hasReadCoverage(col, startRow, endRow)) {
+          const missing = explainMissingReads(col, startRow, endRow);
+          toolResults.push(
+            `Guardrail blocked normalize_phone_column(${col}${startRow}:${col}${endRow}): missing read coverage (e.g. ${missing.join(", ")}).`
+          );
+          continue;
+        }
+      }
+
+      if (fnName === "apply_sasra_provisioning") {
+        const daysCol = String(args.daysOverdueCol ?? "").toUpperCase();
+        const balanceCol = String(args.loanBalanceCol ?? "").toUpperCase();
+        const startRow = Number(args.startRow);
+        const endRow = Number(args.endRow);
+
+        const hasDaysReads = hasReadCoverage(daysCol, startRow, endRow);
+        const hasBalanceReads = hasReadCoverage(balanceCol, startRow, endRow);
+        if (!hasDaysReads || !hasBalanceReads) {
+          const missingDays = hasDaysReads
+            ? []
+            : explainMissingReads(daysCol, startRow, endRow);
+          const missingBalance = hasBalanceReads
+            ? []
+            : explainMissingReads(balanceCol, startRow, endRow);
+          toolResults.push(
+            `Guardrail blocked apply_sasra_provisioning(${startRow}-${endRow}): read ${daysCol} and ${balanceCol} first (missing examples: ${[
+              ...missingDays,
+              ...missingBalance,
+            ].join(", ")}).`
+          );
+          continue;
+        }
+      }
+
       const result: ToolResult = dispatchTool(graph, call);
       toolsInvoked.push(fnName);
+
+      if (fnName === "read_cell" && typeof args.address === "string") {
+        readAddresses.add(String(args.address).toUpperCase());
+      }
 
       // Stage pending operations in the diff store
       if (result.operations.length > 0) {

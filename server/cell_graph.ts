@@ -128,6 +128,54 @@ function colNumberToLetter(n: number): string {
   return s;
 }
 
+function normalizeAddress(address: string): string {
+  const upper = String(address ?? "").trim().toUpperCase();
+  if (!/^[A-Z]{1,3}[1-9][0-9]{0,6}$/.test(upper)) {
+    throw new Error(`Invalid cell address "${address}"`);
+  }
+  return upper;
+}
+
+function getCellForDependencyTraversal(
+  sheetGraph: SheetGraph,
+  address: string
+): Cell | undefined {
+  return sheetGraph.cells.get(`~${address}`) ?? sheetGraph.cells.get(address);
+}
+
+function wouldIntroduceCircularReference(
+  graph: SpreadsheetGraph,
+  address: string,
+  newFormula: string,
+  sheet?: string
+): boolean {
+  const sheetName = sheet ?? graph.activeSheet;
+  const sheetGraph = graph.sheets.get(sheetName);
+  if (!sheetGraph) return false;
+
+  const target = normalizeAddress(address);
+  const initialDeps = extractDependencies(newFormula);
+  if (initialDeps.includes(target)) return true;
+
+  const seen = new Set<string>();
+  const stack = [...initialDeps];
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (current === target) return true;
+    if (seen.has(current)) continue;
+    seen.add(current);
+
+    const cell = getCellForDependencyTraversal(sheetGraph, current);
+    if (!cell?.formula) continue;
+    for (const dep of cell.dependsOn) {
+      if (!seen.has(dep)) stack.push(dep);
+    }
+  }
+
+  return false;
+}
+
 // ── Cell type inference ───────────────────────────────────────────────────────
 
 function inferType(cellData: XLSX.CellObject | undefined): CellType {
@@ -243,7 +291,7 @@ export function getCell(
   sheet?: string
 ): Cell | undefined {
   const sheetName = sheet ?? graph.activeSheet;
-  return graph.sheets.get(sheetName)?.cells.get(address.toUpperCase());
+  return graph.sheets.get(sheetName)?.cells.get(normalizeAddress(address));
 }
 
 /**
@@ -288,7 +336,7 @@ export function findDependents(
   const sheetGraph = graph.sheets.get(sheetName);
   if (!sheetGraph) return [];
 
-  const upper = address.toUpperCase();
+  const upper = normalizeAddress(address);
   const dependents: Cell[] = [];
 
   for (const cell of sheetGraph.cells.values()) {
@@ -331,7 +379,8 @@ export function getColumnHeader(
   sheet?: string
 ): string | undefined {
   const sheetName = sheet ?? graph.activeSheet;
-  const colLetter = address.replace(/[0-9]/g, "").toUpperCase();
+  const upper = normalizeAddress(address);
+  const colLetter = upper.replace(/[0-9]/g, "");
   return graph.sheets.get(sheetName)?.headers.get(colLetter);
 }
 
@@ -354,8 +403,14 @@ export function proposeWrite(
     throw new Error(`Sheet "${sheetName}" not found in graph`);
   }
 
-  const upper = address.toUpperCase();
+  const upper = normalizeAddress(address);
   const existing = sheetGraph.cells.get(upper);
+
+  if (newFormula && wouldIntroduceCircularReference(graph, upper, newFormula, sheetName)) {
+    throw new Error(
+      `Rejected write to ${upper}: formula introduces a circular reference`
+    );
+  }
 
   const updated: Cell = {
     address: upper,

@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1775722270983,
+      "tag": "0000_youthful_sebastian_shaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1775722738336,
+      "tag": "0001_red_gwen_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1775722768927,
+      "tag": "0002_chemical_katie_power",
+      "breakpoints": true
+    }
+  ]
+}

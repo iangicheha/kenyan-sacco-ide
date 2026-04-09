@@ -1,0 +1,34 @@
+version: "3.9"
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:-sqlite:/app/data/meridian.db}
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+      AI_MODEL_KEY: ${AI_MODEL_KEY:-}
+      API_AUTH_ENABLED: ${API_AUTH_ENABLED:-true}
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: meridian
+      POSTGRES_USER: meridian
+      POSTGRES_PASSWORD: meridian
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+volumes:
+  app_data:
+  pg_data:

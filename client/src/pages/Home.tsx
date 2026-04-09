@@ -738,24 +738,26 @@ export default function Home() {
     setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: prompt }]);
     setIsAiThinking(true);
     try {
-      const response = await fetch('http://localhost:3001/chat', {
+      const response = await fetch('http://localhost:3001/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, message: prompt }),
+        body: JSON.stringify({
+          message: prompt,
+          tableName: currentFileMeta?.name && currentSheetName
+            ? `${currentFileMeta.name}::${currentSheetName}`
+            : undefined,
+        }),
       });
       if (!response.ok) {
         const body = await response.text();
         throw new Error(`Chat failed (${response.status}) ${body}`.trim());
       }
       const result = await response.json();
-      const aiMessage = typeof result?.message === 'string'
-        ? result.message
-        : 'Analysis complete. Review pending changes.';
+      const aiMessage = result?.ok
+        ? `${result.execution?.summary ?? 'Execution complete.'} Result: ${JSON.stringify(result.execution?.result)}`
+        : `AI error: ${result?.error ?? 'Unknown AI error'}`;
       setMessages((prev) => [...prev, { id: Date.now() + 1, type: 'bot', text: aiMessage }]);
-      const pending = await refreshPendingOperations(sessionId);
-      if (pending.length > 0) {
-        toast.info(`${pending.length} pending change(s) ready for review.`);
-      }
+      setPendingOperations([]);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown AI error';
       setMessages((prev) => [
@@ -958,29 +960,8 @@ export default function Home() {
           }
         }
 
-        // Initialize Meridian review session from first selected file.
-        const firstSelected = files[0];
-        if (firstSelected) {
-          const sessionForm = new FormData();
-          sessionForm.append('file', firstSelected);
-          const sessionRes = await fetch('http://localhost:3001/upload', {
-            method: 'POST',
-            body: sessionForm,
-          });
-          if (sessionRes.ok) {
-            const sessionData = await sessionRes.json();
-            const newSessionId = typeof sessionData?.sessionId === 'string'
-              ? sessionData.sessionId
-              : null;
-            setSessionId(newSessionId);
-            setPendingOperations([]);
-            if (newSessionId) {
-              toast.success(`Review session ready (${newSessionId}).`);
-            }
-          } else {
-            toast.error('Files uploaded, but review session could not be initialized.');
-          }
-        }
+        setSessionId('api-v2');
+        setPendingOperations([]);
         toast.success(`Uploaded ${files.length} file(s) successfully.`);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Upload failed.');

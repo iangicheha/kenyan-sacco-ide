@@ -26,6 +26,26 @@ import {
 import { invokeLLM } from "../_core/llm";
 // XLSX import handled via server build
 
+const chatTraceSchema = z.object({
+  query: z.string(),
+  plan: z.array(
+    z.object({
+      step: z.number(),
+      action: z.string(),
+      description: z.string(),
+    })
+  ),
+  execution: z.array(
+    z.object({
+      step: z.number(),
+      operation: z.string(),
+      input: z.unknown(),
+      output: z.unknown(),
+    })
+  ),
+  result: z.union([z.number(), z.string()]),
+});
+
 /**
  * Spreadsheet router: handles all agentic spreadsheet operations
  * Routes: /upload, /chat, /accept, /reject, /export, /audit-log, /pending
@@ -95,44 +115,140 @@ export const spreadsheetRouter = router({
       const documents = await getSessionDocuments(sessionId);
       const graphs = await getSessionGraphs(sessionId);
 
-      // Build system prompt for Kenyan financial institutions
-      const systemPrompt = `You are an agentic financial AI assistant for Kenyan financial institutions (SACCOs, banks, microfinance, insurance, investment firms). You work like a code IDE — you read the spreadsheet, propose targeted cell-level changes, and the user reviews each change before it is committed.
+      const systemPrompt = `
+You are NOT a chatbot.
 
-CRITICAL RULES:
-1. ALWAYS call read_cell before proposing a write to a cell you haven't read yet.
-2. ALWAYS provide a clear "rationale" field explaining WHY you are making each change.
-3. NEVER write to a cell without reading it first.
-4. Your changes go into a PENDING state. The user will accept or reject each one. Design your changes to be reviewable — one logical operation at a time.
+You are a deterministic financial reasoning engine.
 
-KENYAN FINANCIAL CONTEXT:
-- Currency: KES (Kenyan Shilling). Always refer to amounts as "KES X,XXX"
-- Phone numbers should be in 254XXXXXXXXX format
-- CBK = Central Bank of Kenya
-- SASRA = Savings and Credit Cooperative Societies Regulatory Authority
-- IRA = Insurance Regulatory Authority
-- Provisioning classifications: Performing (≤0 days, 1%), Watch (1-30 days, 5%), Substandard (31-90 days, 25%), Doubtful (91-180 days, 50%), Loss (>180 days, 100%)
-- Ghost accounts: member IDs that appear in transaction records but not in the official member register
-- Phantom savings: recorded savings balance exceeds total verifiable inflows
-- M-Pesa transactions must be reconciled against bank statements
+Your role is to convert a user query into a STRICT execution trace using the provided dataset.
 
-When the user asks you to analyse, audit, or clean their spreadsheet, respond with a plan first, then call the appropriate tools in sequence. Always end with a summary of what you changed and what the user needs to review.`;
+----------------------------------
 
-      // Call LLM with context
-      const response = await invokeLLM({
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "system",
-            content: `Session context: ${documents.length} documents, ${graphs.length} spreadsheet graphs loaded.`,
-          },
-          ...conversationMessages,
-          { role: "user", content: message },
-        ],
-      });
+HARD RULES (NO EXCEPTIONS):
 
-      const aiResponse = typeof response.choices[0]?.message?.content === 'string' 
-        ? response.choices[0].message.content 
-        : "No response generated";
+- Output MUST be valid JSON
+- DO NOT return text outside JSON
+- DO NOT explain anything
+- DO NOT add commentary
+- DO NOT use markdown
+
+----------------------------------
+
+OUTPUT CONTRACT (STRICT):
+
+You MUST return:
+
+{
+  "query": string,
+  "plan": PlanStep[],
+  "execution": ExecutionStep[],
+  "result": number | string
+}
+
+----------------------------------
+
+PLAN RULES:
+
+- High-level reasoning only
+- No numbers here
+- No actual computation
+
+Each step:
+{
+  "step": number,
+  "action": string,
+  "description": string
+}
+
+----------------------------------
+
+EXECUTION RULES:
+
+- MUST reflect REAL computation
+- MUST use actual dataset values
+- MUST be traceable step-by-step
+
+Each step:
+{
+  "step": number,
+  "operation": string,
+  "input": any,
+  "output": any
+}
+
+----------------------------------
+
+CRITICAL BEHAVIOR:
+
+- Always map query → dataset columns
+- NEVER invent columns
+- NEVER skip execution
+- ALWAYS compute deterministically
+
+----------------------------------
+
+ERROR HANDLING:
+
+If query cannot be computed:
+
+{
+  "query": "<query>",
+  "plan": [],
+  "execution": [],
+  "result": "ERROR: <reason>"
+}
+
+----------------------------------
+
+DATA USAGE:
+
+You will receive structured table data.
+
+Use ONLY the provided data.
+`;
+
+      const messages = [
+        { role: "system" as const, content: systemPrompt },
+        {
+          role: "system" as const,
+          content: `Session context: ${documents.length} documents, ${graphs.length} spreadsheet graphs loaded.`,
+        },
+        ...conversationMessages,
+        { role: "user" as const, content: message },
+      ];
+
+      let parsedTrace:
+        | {
+            query: string;
+            plan: Array<{ step: number; action: string; description: string }>;
+            execution: Array<{ step: number; operation: string; input: unknown; output: unknown }>;
+            result: number | string;
+          }
+        | null = null;
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const response = await invokeLLM({ messages });
+        const raw = response.choices[0]?.message?.content;
+        if (typeof raw !== "string") {
+          continue;
+        }
+        try {
+          const json = JSON.parse(raw);
+          parsedTrace = chatTraceSchema.parse(json);
+          break;
+        } catch {
+          continue;
+        }
+      }
+
+      const aiResponse = parsedTrace
+        ? JSON.stringify(parsedTrace)
+        : JSON.stringify({
+            query: message,
+            plan: [],
+            execution: [],
+            result: "ERROR: invalid JSON output",
+          });
 
       // Save conversation to history
       await createConversationMessage({
@@ -155,6 +271,7 @@ When the user asks you to analyse, audit, or clean their spreadsheet, respond wi
       return {
         sessionId,
         message: aiResponse,
+        trace: parsedTrace,
         operations: [],
         cellLinks: [],
         toolsInvoked: [],

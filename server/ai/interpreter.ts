@@ -73,8 +73,57 @@ function buildSystemPrompt(): string {
     "Use ONLY the provided SCHEMA and CONTEXT. CONTEXT is retrieved documentation and schema hints — it may be incomplete.",
     "Do not compute numbers, totals, forecasts, or aggregates. Output intent and column names only.",
     "If targetColumn is uncertain, pick the best match from SCHEMA column names only.",
+    "STRICT RULES:",
+    "Output ONLY valid JSON.",
+    "No explanations.",
+    "No extra text.",
     "Respond with strict JSON only: { \"intent\": string, \"targetColumn\"?: string, \"forecastModel\"?: string }",
   ].join(" ");
+}
+
+async function requestStrictIntentJson(
+  apiKey: string,
+  content: string
+): Promise<InterpretedIntent | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: DEFAULT_MODEL,
+        temperature: 0,
+        messages: [
+          {
+            role: "system",
+            content: buildSystemPrompt(),
+          },
+          {
+            role: "user",
+            content,
+          },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const body = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const raw = body.choices?.[0]?.message?.content;
+    if (!raw) {
+      continue;
+    }
+    try {
+      return JSON.parse(raw) as InterpretedIntent;
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 export async function interpretIntent(message: string, options?: InterpretIntentOptions): Promise<InterpretedIntent> {
@@ -100,37 +149,12 @@ export async function interpretIntent(message: string, options?: InterpretIntent
     ? `VALIDATION_FEEDBACK (fix the plan; do not output numbers):\n${options.retryHint}\n\n`
     : "";
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      temperature: 0,
-      messages: [
-        {
-          role: "system",
-          content: buildSystemPrompt(),
-        },
-        {
-          role: "user",
-          content: `${retryBlock}${contextBlock}SCHEMA:\n${schemaSummary}\n\nUSER:\n${message}\n\nOUTPUT:\nstrict JSON only`,
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) return heuristicInterpret(message, retrieved, options?.retryHint);
-  const body = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const raw = body.choices?.[0]?.message?.content;
-  if (!raw) return heuristicInterpret(message, retrieved, options?.retryHint);
-  try {
-    return JSON.parse(raw) as InterpretedIntent;
-  } catch {
-    return heuristicInterpret(message, retrieved, options?.retryHint);
+  const parsed = await requestStrictIntentJson(
+    apiKey,
+    `${retryBlock}${contextBlock}SCHEMA:\n${schemaSummary}\n\nUSER:\n${message}\n\nOUTPUT:\nstrict JSON only`
+  );
+  if (parsed) {
+    return parsed;
   }
+  return heuristicInterpret(message, retrieved, options?.retryHint);
 }

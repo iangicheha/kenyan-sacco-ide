@@ -82,6 +82,19 @@ import { useState, useEffect, useRef } from 'react';
 import { parseFormula } from '@/lib/formulaParser';
 import { ExcelSheet } from '@/components/ExcelSheet';
 
+type StructuredAiChatResponse = {
+  query: string;
+  context: Record<string, unknown> | null;
+  plan: unknown[] | Record<string, unknown> | null;
+  validation: Record<string, unknown> | null;
+  execution: {
+    steps: unknown[];
+    final: unknown;
+  } | null;
+  result: unknown;
+  error: string | null;
+};
+
 export default function Home() {
   type SheetPreviewRow = Record<string, string>;
   type UploadedSheet = {
@@ -119,9 +132,9 @@ export default function Home() {
   const [cellValue, setCellValue] = useState('');
   const [excelData, setExcelData] = useState<SheetPreviewRow[]>(emptySheetRows);
   const [wordContent, setWordContent] = useState('SASRA Form 4 - Financial Statement\n\nThis document contains the financial statements for the SACCO as required by SASRA regulations.\n\nPlease review all sections carefully.');
-  const [messages, setMessages] = useState<{ id: number; type: 'user' | 'bot'; text: string }[]>([]);
   const [agentInput, setAgentInput] = useState('');
-  const [isAiThinking, setIsAiThinking] = useState(false);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiResponse, setAiResponse] = useState<StructuredAiChatResponse | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [pendingOperations, setPendingOperations] = useState<PendingOperation[]>([]);
   const [ribbonExpanded, setRibbonExpanded] = useState(true);
@@ -735,8 +748,7 @@ export default function Home() {
       return;
     }
 
-    setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: prompt }]);
-    setIsAiThinking(true);
+    setIsAiLoading(true);
     try {
       const response = await fetch('http://localhost:3001/api/ai/chat', {
         method: 'POST',
@@ -748,25 +760,26 @@ export default function Home() {
             : undefined,
         }),
       });
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`Chat failed (${response.status}) ${body}`.trim());
-      }
       const result = await response.json();
-      const aiMessage = result?.ok
-        ? `${result.execution?.summary ?? 'Execution complete.'} Result: ${JSON.stringify(result.execution?.result)}`
-        : `AI error: ${result?.error ?? 'Unknown AI error'}`;
-      setMessages((prev) => [...prev, { id: Date.now() + 1, type: 'bot', text: aiMessage }]);
+      setAiResponse(result as StructuredAiChatResponse);
+      if (!response.ok && result?.error) {
+        toast.error(String(result.error));
+      }
       setPendingOperations([]);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown AI error';
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now() + 2, type: 'bot', text: `AI error: ${message}` },
-      ]);
+      setAiResponse({
+        query: prompt,
+        context: null,
+        plan: null,
+        validation: null,
+        execution: null,
+        result: null,
+        error: message,
+      });
       toast.error(message);
     } finally {
-      setIsAiThinking(false);
+      setIsAiLoading(false);
     }
   };
 
@@ -1141,7 +1154,7 @@ export default function Home() {
 
   const handleSendMessage = async () => {
     const userText = agentInput.trim();
-    if (!userText || isAiThinking) return;
+    if (!userText || isAiLoading) return;
 
     setAgentInput('');
     await runQuickPrompt(userText);
@@ -2015,17 +2028,40 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Messages */}
+          {/* Structured AI output */}
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-4">
-              {messages.map((msg) => (
-                <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-xs px-3 py-2 rounded-lg text-xs ${msg.type === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-900'}`}>
-                    {msg.text}
-                  </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
+                <div className="font-semibold text-slate-700 uppercase tracking-wider">Query</div>
+                <pre className="whitespace-pre-wrap break-words bg-white border border-slate-200 rounded p-2">
+                  {JSON.stringify(aiResponse?.query ?? null, null, 2)}
+                </pre>
+              </div>
+              <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <summary className="font-semibold text-slate-700 uppercase tracking-wider cursor-pointer">Plan</summary>
+                <pre className="mt-2 whitespace-pre-wrap break-words bg-white border border-slate-200 rounded p-2 text-xs">
+                  {JSON.stringify(aiResponse?.plan ?? null, null, 2)}
+                </pre>
+              </details>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
+                <div className="font-semibold text-slate-700 uppercase tracking-wider">Execution Steps</div>
+                <pre className="whitespace-pre-wrap break-words bg-white border border-slate-200 rounded p-2">
+                  {JSON.stringify(aiResponse?.execution?.steps ?? null, null, 2)}
+                </pre>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
+                <div className="font-semibold text-slate-700 uppercase tracking-wider">Final Result</div>
+                <pre className="whitespace-pre-wrap break-words bg-white border border-slate-200 rounded p-2">
+                  {JSON.stringify(aiResponse?.execution?.final ?? aiResponse?.result ?? null, null, 2)}
+                </pre>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
+                <div className="font-semibold text-slate-700 uppercase tracking-wider">Error</div>
+                <pre className="whitespace-pre-wrap break-words bg-white border border-slate-200 rounded p-2">
+                  {JSON.stringify(aiResponse?.error ?? null, null, 2)}
+                </pre>
+              </div>
                 </div>
-              ))}
-            </div>
           </ScrollArea>
 
           {/* Input */}
@@ -2073,15 +2109,15 @@ export default function Home() {
                 value={agentInput}
                 onChange={(e) => setAgentInput(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                placeholder="Ask the assistant..."
+                placeholder="Query compiler input..."
                 className="text-xs"
-                disabled={isAiThinking}
+                disabled={isAiLoading}
               />
               <Button
                 size="sm"
                 onClick={handleSendMessage}
                 className="bg-blue-600 hover:bg-blue-700 text-white"
-                disabled={isAiThinking || !agentInput.trim()}
+                disabled={isAiLoading || !agentInput.trim()}
               >
                 <Send className="w-3 h-3" />
               </Button>

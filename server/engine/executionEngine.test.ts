@@ -1,8 +1,36 @@
 import { describe, it, expect } from "vitest";
 import { clearTablesForTests, rollbackTable, upsertTable } from "../data/tableStore";
-import { executePlan } from "./executionEngine";
+import { executePlan, executePlanOnRows } from "./executionEngine";
 
 describe("execution engine", () => {
+  it("executePlanOnRows matches live table when rows are identical", () => {
+    clearTablesForTests();
+    const table = upsertTable("finance::Q0", [{ amount: 10 }, { amount: 20 }]);
+    const plan = {
+      intent: "sum" as const,
+      tableName: "finance::Q0",
+      schemaVersion: table.version,
+      steps: [{ action: "aggregate" as const, operation: "sum" as const, column: "amount" }],
+    };
+    const a = executePlan(plan);
+    const b = executePlanOnRows(plan, table.rows.map((r) => ({ ...r })));
+    expect(a.result).toBe(b.result);
+  });
+
+  it("executePlanOnRows uses snapshot only (does not read stale in-memory rows)", () => {
+    clearTablesForTests();
+    const table = upsertTable("finance::Snap", [{ amount: 100 }]);
+    const plan = {
+      intent: "sum" as const,
+      tableName: "finance::Snap",
+      schemaVersion: table.version,
+      steps: [{ action: "aggregate" as const, operation: "sum" as const, column: "amount" }],
+    };
+    const snapshot = [{ amount: 1 }, { amount: 2 }];
+    const r = executePlanOnRows(plan, snapshot);
+    expect(r.result).toBe(3);
+  });
+
   it("returns deterministic sum", () => {
     clearTablesForTests();
     const table = upsertTable("finance::Q1", [{ amount: 10 }, { amount: 30 }, { amount: 60 }]);

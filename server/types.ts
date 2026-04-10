@@ -167,6 +167,70 @@ export interface AgentPipelineAudit {
   validationAgent?: ValidationAgentOutput;
   retries: AgentRetryRecord[];
   metrics: OrchestratorMetrics;
+  /** Phase 5 — goal autonomy pipeline (audit only). */
+  goalAutonomy?: GoalAutonomyAudit;
+}
+
+/** Structured objective from natural-language goal (no numeric fields). */
+export interface StructuredObjective {
+  objective: string;
+  label: string;
+  constraints: string[];
+  metrics: string[];
+}
+
+export interface TaskDecomposition {
+  tasks: string[];
+}
+
+export interface StrategyCandidate {
+  id: string;
+  /** Planning query passed to planningAgent — intent only, no numbers. */
+  query: string;
+  plan: AiExecutionPlan;
+  planning: PlanningAgentOutput;
+  validation: ValidationAgentOutput;
+}
+
+export interface ScenarioRun {
+  id: string;
+  label: string;
+  /** Deterministic seed for reproducibility (same inputs → same seed). */
+  seed: string;
+  execution: ExecutionResult;
+  /** Row snapshot hash after scenario transform (for audit replay). */
+  rowSnapshotHash: string;
+  /** Whether this run was served from cache. */
+  cacheHit: boolean;
+  /** Wall-clock time for this scenario execution only. */
+  executionMs: number;
+}
+
+export interface GoalReport {
+  summary: string;
+  scenarios: Array<{
+    id: string;
+    label: string;
+    result: unknown;
+    seed: string;
+  }>;
+  recommendations: string[];
+  metrics: string[];
+}
+
+export interface GoalAutonomyAudit {
+  goalInput: string;
+  objective: StructuredObjective;
+  tasks: string[];
+  strategies: StrategyCandidate[];
+  scenarios: ScenarioRun[];
+  report: GoalReport;
+  performance: {
+    totalMs: number;
+    scenarioCount: number;
+    cacheHits: number;
+    maxScenarios: number;
+  };
 }
 
 export interface OrchestratorMetrics {
@@ -175,4 +239,38 @@ export interface OrchestratorMetrics {
   validationAgentMs: number;
   executionMs: number;
   totalMs: number;
+}
+
+export type FinancialStreamTopic = "transactions" | "market_data" | "financial_events" | "alerts";
+
+export interface FinancialStreamEvent<T = Record<string, unknown>> {
+  id: string;
+  topic: FinancialStreamTopic;
+  createdAt: string;
+  source: string;
+  payload: T;
+}
+
+export interface RealtimeMetricsState {
+  transactionCount: number;
+  transactionVolume: number;
+  highRiskTransactionCount: number;
+  marketTickCount: number;
+  anomalyCount: number;
+  updatedAt: string;
+}
+
+export interface RealtimeState {
+  tables: Record<string, RowRecord[]>;
+  metrics: RealtimeMetricsState;
+  lastEventId?: string;
+}
+
+export interface AlertRecord {
+  id: string;
+  level: "info" | "warn" | "critical";
+  title: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
 }

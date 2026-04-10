@@ -61,6 +61,23 @@ function executeStep(rows: RowRecord[], step: PlanStep): unknown {
 }
 
 export function executePlan(plan: AiExecutionPlan): ExecutionResult {
+  const table = getTable(plan.tableName);
+  if (!table) {
+    throw new Error(`Table "${plan.tableName}" not found`);
+  }
+  if (table.version !== plan.schemaVersion) {
+    throw new Error(
+      `Schema version mismatch for "${plan.tableName}". plan=${plan.schemaVersion}, current=${table.version}`
+    );
+  }
+  return executePlanOnRows(plan, table.rows);
+}
+
+/**
+ * Deterministic execution on a row snapshot (does not mutate the live table).
+ * Used by scenario simulations — financial values always come from this engine.
+ */
+export function executePlanOnRows(plan: AiExecutionPlan, rows: RowRecord[]): ExecutionResult {
   const started = Date.now();
   const table = getTable(plan.tableName);
   if (!table) {
@@ -71,7 +88,7 @@ export function executePlan(plan: AiExecutionPlan): ExecutionResult {
       `Schema version mismatch for "${plan.tableName}". plan=${plan.schemaVersion}, current=${table.version}`
     );
   }
-  const steps = plan.steps.map((step) => ({ step, output: executeStep(table.rows, step) }));
+  const steps = plan.steps.map((step) => ({ step, output: executeStep(rows, step) }));
   const final = steps.length > 0 ? steps[steps.length - 1].output : null;
   const elapsedMs = Date.now() - started;
   return {

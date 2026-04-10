@@ -3,7 +3,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
 import path from "node:path";
-import { defineConfig, type Plugin, type ViteDevServer } from "vite";
+import { defineConfig } from "vitest/config";
+import type { Plugin, ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 
 // =============================================================================
@@ -154,6 +155,12 @@ const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(
 
 export default defineConfig({
   plugins,
+  /** Server tests live under ./server; Vitest must use repo root so Node deps (e.g. xlsx, cors) resolve. */
+  test: {
+    root: PROJECT_ROOT,
+    environment: "node",
+    include: ["server/**/*.test.ts"],
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),

@@ -41,13 +41,53 @@ Audit Layer (immutable SQLite records + exports)
 - AI returns intent and planning metadata only.
 - All numerical outputs are computed in deterministic TypeScript model functions.
 - Identical dataset + identical plan always produces identical output.
+- `/api/ai/chat` returns a strict structured JSON contract (no conversational text).
+
+## `/api/ai/chat` Response Contract
+
+All successful chat responses are standardized to:
+
+```json
+{
+  "query": "string",
+  "context": {},
+  "plan": [],
+  "validation": {},
+  "execution": {
+    "steps": [],
+    "final": "any"
+  },
+  "result": "any",
+  "error": null
+}
+```
+
+Error responses are standardized to:
+
+```json
+{
+  "query": "string",
+  "context": null,
+  "plan": null,
+  "validation": null,
+  "execution": null,
+  "result": null,
+  "error": "error message"
+}
+```
+
+Contract enforcement rules:
+
+- No `text`, `message`, or `explanation` fields in main chat response.
+- LLM output is JSON-parsed with retry (up to 2 retries) before fallback logic.
+- `result` is sourced only from the execution engine (`execution.final`), never from model prose.
 
 ## API Endpoints and Roles
 
 - `GET /api/health` (`read-only`, `analyst`, `admin`) -> service health JSON.
 - `POST /api/upload` (`admin`) -> upload workbook(s) and parse sheet previews.
 - `GET /api/upload/preview` (`read-only`, `analyst`, `admin`) -> paginated preview rows.
-- `POST /api/ai/chat` (`analyst`, `admin`) -> interpretation + plan + execution result.
+- `POST /api/ai/chat` (`analyst`, `admin`) -> deterministic structured JSON contract.
 - `GET /api/audit/export?format=json|csv|sql` (`admin`) -> immutable audit export.
 - `GET /api/tables/:tableName/versions` (`read-only`, `analyst`, `admin`) -> table versions.
 - `POST /api/tables/:tableName/rollback` (`admin`) -> rollback to a historical version.
@@ -210,4 +250,4 @@ The server test suite covers:
 - Interpreter deterministic behavior
 - Planner forecast/model variants + schema versioning
 - Execution engine model coverage + stale schema rejection + rollback
-- API integration for role enforcement and audit export formats
+- API integration for role enforcement, audit export formats, and deterministic chat contract invariants

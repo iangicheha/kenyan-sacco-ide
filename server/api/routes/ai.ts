@@ -14,37 +14,21 @@ import type { DataAgentOutput, ValidationAgentOutput } from "../../types";
 
 export const aiRouter = Router();
 
-type AiChatSuccessResponse = {
-  query: string;
-  context: Record<string, unknown>;
-  plan: unknown[];
-  validation: Record<string, unknown>;
-  execution: {
-    steps: unknown[];
-    final: unknown;
-  };
-  result: unknown;
-  error: null;
-};
+type AiChatResponse = Record<string, unknown>;
 
-type AiChatErrorResponse = {
-  query: string;
-  context: null;
-  plan: null;
-  validation: null;
-  execution: null;
-  result: null;
-  error: string;
-};
+function cleanResponse(response: AiChatResponse): AiChatResponse {
+  const cleaned: AiChatResponse = {};
+  for (const key in response) {
+    if (response[key] !== null && response[key] !== undefined) {
+      cleaned[key] = response[key];
+    }
+  }
+  return cleaned;
+}
 
-function buildErrorResponse(query: string, error: string): AiChatErrorResponse {
+function buildErrorResponse(query: string, error: string): AiChatResponse {
   return {
     query,
-    context: null,
-    plan: null,
-    validation: null,
-    execution: null,
-    result: null,
     error,
   };
 }
@@ -128,7 +112,7 @@ aiRouter.post("/ai/chat", requireRole("analyst"), async (req, res) => {
     improveRetrievalRanking(retrievedContext);
 
     const result = orchestrated.execution.result;
-    const response: AiChatSuccessResponse = {
+    const response: AiChatResponse = {
       query: message,
       context: toStructuredContext(orchestrated.context),
       plan: orchestrated.plan.steps,
@@ -138,9 +122,8 @@ aiRouter.post("/ai/chat", requireRole("analyst"), async (req, res) => {
         final: result,
       },
       result,
-      error: null,
     };
-    return res.status(200).json(response);
+    return res.status(200).json(cleanResponse(response));
   } catch (error) {
     const pipeline = (error as Error & { agentPipeline?: AgentPipelineAudit }).agentPipeline;
     const emptyPlan: AiExecutionPlan = {
@@ -176,7 +159,7 @@ aiRouter.post("/ai/chat", requireRole("analyst"), async (req, res) => {
     });
     logFailedPlan(message, messageText, tableName);
 
-    return res.status(400).json(buildErrorResponse(message, messageText));
+    return res.status(400).json(cleanResponse(buildErrorResponse(message, messageText)));
   }
 });
 

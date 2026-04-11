@@ -81,18 +81,19 @@ import {
 import { useState, useEffect, useRef } from 'react';
 import { parseFormula } from '@/lib/formulaParser';
 import { ExcelSheet } from '@/components/ExcelSheet';
+import { AIPanel } from '@/components/AIPanel';
 
 type StructuredAiChatResponse = {
-  query: string;
-  context: Record<string, unknown> | null;
-  plan: unknown[] | Record<string, unknown> | null;
-  validation: Record<string, unknown> | null;
-  execution: {
+  query?: string;
+  context?: Record<string, unknown>;
+  plan?: unknown[] | Record<string, unknown>;
+  validation?: Record<string, unknown>;
+  execution?: {
     steps: unknown[];
     final: unknown;
-  } | null;
-  result: unknown;
-  error: string | null;
+  };
+  result?: unknown;
+  error?: string;
 };
 
 export default function Home() {
@@ -770,11 +771,6 @@ export default function Home() {
       const message = error instanceof Error ? error.message : 'Unknown AI error';
       setAiResponse({
         query: prompt,
-        context: null,
-        plan: null,
-        validation: null,
-        execution: null,
-        result: null,
         error: message,
       });
       toast.error(message);
@@ -2030,38 +2026,7 @@ export default function Home() {
 
           {/* Structured AI output */}
           <ScrollArea className="flex-1 p-4">
-            <div className="space-y-4">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
-                <div className="font-semibold text-slate-700 uppercase tracking-wider">Query</div>
-                <pre className="whitespace-pre-wrap break-words bg-white border border-slate-200 rounded p-2">
-                  {JSON.stringify(aiResponse?.query ?? null, null, 2)}
-                </pre>
-              </div>
-              <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <summary className="font-semibold text-slate-700 uppercase tracking-wider cursor-pointer">Plan</summary>
-                <pre className="mt-2 whitespace-pre-wrap break-words bg-white border border-slate-200 rounded p-2 text-xs">
-                  {JSON.stringify(aiResponse?.plan ?? null, null, 2)}
-                </pre>
-              </details>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
-                <div className="font-semibold text-slate-700 uppercase tracking-wider">Execution Steps</div>
-                <pre className="whitespace-pre-wrap break-words bg-white border border-slate-200 rounded p-2">
-                  {JSON.stringify(aiResponse?.execution?.steps ?? null, null, 2)}
-                </pre>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
-                <div className="font-semibold text-slate-700 uppercase tracking-wider">Final Result</div>
-                <pre className="whitespace-pre-wrap break-words bg-white border border-slate-200 rounded p-2">
-                  {JSON.stringify(aiResponse?.execution?.final ?? aiResponse?.result ?? null, null, 2)}
-                </pre>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
-                <div className="font-semibold text-slate-700 uppercase tracking-wider">Error</div>
-                <pre className="whitespace-pre-wrap break-words bg-white border border-slate-200 rounded p-2">
-                  {JSON.stringify(aiResponse?.error ?? null, null, 2)}
-                </pre>
-              </div>
-                </div>
+            <AIPanel isLoading={isAiLoading} response={aiResponse} />
           </ScrollArea>
 
           {/* Input */}

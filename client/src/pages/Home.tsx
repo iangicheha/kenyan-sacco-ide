@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
+import RibbonMenu from '@/components/RibbonMenu';
 import {
   Bold,
   Italic,
@@ -78,25 +79,62 @@ import {
   Redo2,
   PanelLeftClose,
 } from 'lucide-react';
+import {
+  ClipboardPasteRegular,
+  ScreenCutRegular,
+  CopyRegular,
+  TextBoldRegular,
+  TextItalicRegular,
+  TextUnderlineRegular,
+  TextColorRegular,
+  AlignTopRegular,
+  AlignCenterVerticalRegular,
+  AlignBottomRegular,
+  TextAlignLeftRegular,
+  TextAlignCenterRegular,
+  TextAlignRightRegular,
+  TableRegular,
+  TableStackLeftRegular,
+  ChartMultipleRegular,
+  DataLineRegular,
+  DataPieRegular,
+  DataBarVerticalRegular,
+  ArrowUploadRegular,
+  DocumentTableRegular,
+  MathFormulaRegular,
+  AddRegular,
+  MoneyRegular,
+  BranchRegular,
+  ArrowRoutingRegular,
+  CodeRegular,
+  PhoneRegular,
+  ArrowSortDownLinesRegular,
+  ArrowSortUpLinesRegular,
+  FilterRegular,
+  FilterDismissRegular,
+  CheckmarkCircleRegular,
+  DeleteRegular,
+  TextColumnTwoRegular,
+  ZoomInRegular,
+  ZoomOutRegular,
+  LockClosedRegular,
+  SplitHorizontalRegular,
+  WeatherMoonRegular,
+  WeatherSunnyRegular,
+  ChevronDownRegular,
+} from '@fluentui/react-icons';
 import { useState, useEffect, useRef } from 'react';
 import { parseFormula } from '@/lib/formulaParser';
+import { apiUrl } from '@/lib/api';
+import { authFetch } from '@/lib/authApi';
 import { ExcelSheet } from '@/components/ExcelSheet';
-import { AIPanel } from '@/components/AIPanel';
-
-type StructuredAiChatResponse = {
-  query?: string;
-  context?: Record<string, unknown>;
-  plan?: unknown[] | Record<string, unknown>;
-  validation?: Record<string, unknown>;
-  execution?: {
-    steps: unknown[];
-    final: unknown;
-  };
-  result?: unknown;
-  error?: string;
-};
+import { PendingOperationsPanel } from '@/components/PendingOperationsPanel';
 
 export default function Home() {
+  type AiChatMessage = {
+    role: 'user' | 'assistant';
+    content: string;
+  };
   type SheetPreviewRow = Record<string, string>;
   type UploadedSheet = {
     sheetName: string;
@@ -135,7 +173,6 @@ export default function Home() {
   const [wordContent, setWordContent] = useState('SASRA Form 4 - Financial Statement\n\nThis document contains the financial statements for the SACCO as required by SASRA regulations.\n\nPlease review all sections carefully.');
   const [agentInput, setAgentInput] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiResponse, setAiResponse] = useState<StructuredAiChatResponse | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [pendingOperations, setPendingOperations] = useState<PendingOperation[]>([]);
   const [ribbonExpanded, setRibbonExpanded] = useState(true);
@@ -151,7 +188,12 @@ export default function Home() {
   const [history, setHistory] = useState<any[]>([emptySheetRows]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [aiAssistantVisible, setAiAssistantVisible] = useState(false);
+  const [hasAskedAiQuery, setHasAskedAiQuery] = useState(false);
+  const [aiSidebarMessage, setAiSidebarMessage] = useState<string>('');
+  const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([]);
+  const [showPendingOpsPanel, setShowPendingOpsPanel] = useState(false);
   const [aiMode, setAiMode] = useState<'agent' | 'plan' | 'debug' | 'ask'>('agent');
+  const [autoModeEnabled, setAutoModeEnabled] = useState(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isUploadingFiles, setIsUploadingFiles] = useState(false);
   const [isLoadingMoreRows, setIsLoadingMoreRows] = useState(false);
@@ -731,8 +773,8 @@ export default function Home() {
   };
 
   const refreshPendingOperations = async (currentSessionId: string) => {
-    const response = await fetch(
-      `http://localhost:3001/pending?sessionId=${encodeURIComponent(currentSessionId)}`
+    const response = await authFetch(
+      `/api/spreadsheet/pending/${encodeURIComponent(currentSessionId)}`
     );
     if (!response.ok) {
       throw new Error(`Failed to load pending operations (${response.status})`);
@@ -751,29 +793,58 @@ export default function Home() {
 
     setIsAiLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/ai/chat', {
+      const response = await authFetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: prompt,
-          tableName: currentFileMeta?.name && currentSheetName
-            ? `${currentFileMeta.name}::${currentSheetName}`
-            : undefined,
+          sessionId,
+          prompt,
+          regulator: "SASRA",
+          fileName: currentFileMeta?.name,
+          sheetName: currentSheetName || undefined,
         }),
       });
       const result = await response.json();
-      setAiResponse(result as StructuredAiChatResponse);
       if (!response.ok && result?.error) {
         toast.error(String(result.error));
+        setAiMessages((prev) => [...prev, { role: 'assistant', content: String(result.error) }]);
+        setShowPendingOpsPanel(false);
+      } else if (result?.status === 'chat') {
+        const message = String(result.message ?? 'No response.');
+        setAiSidebarMessage(message);
+        setAiMessages((prev) => [...prev, { role: 'assistant', content: message }]);
+        setShowPendingOpsPanel(false);
+      } else if (result?.status === 'file_answer') {
+        const message = String(result.summary ?? 'No response.');
+        setAiSidebarMessage(message);
+        setAiMessages((prev) => [...prev, { role: 'assistant', content: message }]);
+        setShowPendingOpsPanel(false);
+      } else if (result?.status === 'file_summary') {
+        const message = String(result.summary ?? 'I read the file.');
+        setAiSidebarMessage(message);
+        setAiMessages((prev) => [...prev, { role: 'assistant', content: message }]);
+        setShowPendingOpsPanel(false);
+      } else if (result?.status === 'pending_review') {
+        const operationCount = Array.isArray(result.pendingOperations) ? result.pendingOperations.length : 0;
+        const message = `I prepared ${operationCount} spreadsheet operation(s) for your review.`;
+        setAiSidebarMessage(message);
+        setAiMessages((prev) => [...prev, { role: 'assistant', content: message }]);
+        setShowPendingOpsPanel(operationCount > 0);
+      } else if (result?.status) {
+        const message =
+          result.status === 'clarification_required'
+            ? 'I need a bit more detail. Ask a direct question about the file or request a specific spreadsheet action.'
+            : `AI status: ${result.status}`;
+        setAiSidebarMessage(message);
+        setAiMessages((prev) => [...prev, { role: 'assistant', content: message }]);
+        setShowPendingOpsPanel(false);
       }
       setPendingOperations([]);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown AI error';
-      setAiResponse({
-        query: prompt,
-        error: message,
-      });
       toast.error(message);
+      setAiMessages((prev) => [...prev, { role: 'assistant', content: message }]);
+      setShowPendingOpsPanel(false);
     } finally {
       setIsAiLoading(false);
     }
@@ -787,14 +858,29 @@ export default function Home() {
       toast.error('No active session.');
       return;
     }
-    const response = await fetch(`http://localhost:3001/${decision}`, {
+    const sheetData: Record<string, string | number | boolean | null> = {};
+    for (let r = 0; r < excelData.length; r++) {
+      const row = excelData[r];
+      for (const [col, val] of Object.entries(row || {})) {
+        sheetData[`${col}${r + 1}`] =
+          typeof val === "string" || typeof val === "number" || typeof val === "boolean" || val === null
+            ? val
+            : String(val);
+      }
+    }
+
+    const response = await authFetch(`/api/spreadsheet/${decision}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, operationId }),
+      body: JSON.stringify({
+        operationId,
+        analyst: "analyst@meridian.local",
+        sheetData,
+      }),
     });
     const result = await response.json();
-    if (!response.ok || result?.success === false) {
-      throw new Error(result?.message || `${decision} failed`);
+    if (!response.ok) {
+      throw new Error(result?.error || `${decision} failed`);
     }
     await refreshPendingOperations(sessionId);
     toast.success(result?.message || `Operation ${decision}ed.`);
@@ -814,7 +900,7 @@ export default function Home() {
       return;
     }
     const response = await fetch(
-      `http://localhost:3001/export?sessionId=${encodeURIComponent(sessionId)}`
+      `${apiUrl("/export")}?sessionId=${encodeURIComponent(sessionId)}`
     );
     if (!response.ok) {
       throw new Error(`Export failed (${response.status})`);
@@ -832,6 +918,10 @@ export default function Home() {
   };
 
   const handleFileSelect = (fileName: string, type: 'excel' | 'word' | 'pdf') => {
+    setHasAskedAiQuery(false);
+    setAiSidebarMessage('');
+    setAiMessages([]);
+    setShowPendingOpsPanel(false);
     setSelectedFile(fileName);
     setFileType(type);
     setSelectedCell('A1');
@@ -887,7 +977,7 @@ export default function Home() {
         setIsUploadingFiles(true);
         toast.info('Uploading and parsing files...');
 
-        const response = await fetch('http://localhost:3001/api/upload', {
+        const response = await fetch(apiUrl('/api/files/upload'), {
           method: 'POST',
           body: formData,
         });
@@ -943,6 +1033,10 @@ export default function Home() {
 
         const firstFile = mappedFiles[0];
         if (firstFile) {
+          setHasAskedAiQuery(false);
+          setAiSidebarMessage('');
+          setAiMessages([]);
+          setShowPendingOpsPanel(false);
           setCurrentFileMeta(firstFile);
           setSelectedFile(firstFile.name);
           setFileType(firstFile.type);
@@ -996,7 +1090,7 @@ export default function Home() {
     try {
       setIsLoadingMoreRows(true);
       const response = await fetch(
-        `http://localhost:3001/api/upload/preview?fileName=${encodeURIComponent(currentFileMeta.name)}&sheetName=${encodeURIComponent(currentSheetName)}&offset=${activeSheet.loadedRows}&limit=500`
+        `${apiUrl("/api/files/upload/preview")}?fileName=${encodeURIComponent(currentFileMeta.name)}&sheetName=${encodeURIComponent(currentSheetName)}&offset=${activeSheet.loadedRows}&limit=500`
       );
       if (!response.ok) {
         throw new Error(`Failed to load more rows (${response.status})`);
@@ -1152,6 +1246,8 @@ export default function Home() {
     const userText = agentInput.trim();
     if (!userText || isAiLoading) return;
 
+    setHasAskedAiQuery(true);
+    setAiMessages((prev) => [...prev, { role: 'user', content: userText }]);
     setAgentInput('');
     await runQuickPrompt(userText);
   };
@@ -1216,27 +1312,95 @@ export default function Home() {
     setCurrentFileMeta((prev) => (prev ? { ...prev, activeSheetName: sheetName } : prev));
   };
 
-  const RibbonButton = ({ icon: Icon, label, onClick, active }: any) => (
+  // Excel-style Large Button (52x56px)
+  const LargeButton = ({ icon: Icon, label, onClick }: any) => (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center gap-0.5 px-1.5 py-1 rounded transition-colors group min-w-fit ${
-        active ? 'bg-blue-100 ring-1 ring-blue-200' : 'hover:bg-blue-50'
-      }`}
+      className="flex flex-col items-center justify-center w-[52px] h-[56px] rounded hover:bg-[#e5f3ff] transition-colors"
       title={label}
     >
-      <Icon className={`w-3.5 h-3.5 ${active ? 'text-blue-700' : 'text-slate-600 group-hover:text-blue-600'}`} />
-      <span className={`text-xs whitespace-nowrap ${active ? 'text-blue-700' : 'text-slate-600 group-hover:text-blue-600'}`}>
-        {label}
-      </span>
+      <span className="w-8 h-8 flex items-center justify-center"><Icon className="w-6 h-6" /></span>
+      <span className="text-[11px] text-gray-700">{label}</span>
     </button>
   );
 
-  const RibbonGroup = ({ title, children }: any) => (
-    <div className="flex flex-col items-center gap-1 px-2 py-1.5 border-r border-slate-200 min-w-fit">
-      <div className="flex items-center gap-0.5 flex-wrap justify-center">{children}</div>
-      <span className="text-xs text-slate-500 whitespace-nowrap">{title}</span>
+  // Excel-style Large Button with text/emoji icon
+  const LargeButtonText = ({ icon, label, onClick }: any) => (
+    <button
+      onClick={onClick}
+      className="flex flex-col items-center justify-center w-[52px] h-[56px] rounded hover:bg-[#e5f3ff] transition-colors"
+      title={label}
+    >
+      <span className="w-8 h-8 flex items-center justify-center text-lg">{icon}</span>
+      <span className="text-[11px] text-gray-700">{label}</span>
+    </button>
+  );
+
+  // Excel-style Small Button (28x28px)
+  const SmallButton = ({ icon: Icon, title: btnTitle, onClick, active }: any) => (
+    <button
+      onClick={onClick}
+      title={btnTitle}
+      className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
+        active ? 'bg-[#cce4ff] border border-[#0078d4]' : 'hover:bg-[#e5f3ff]'
+      }`}
+    >
+      <Icon className="w-4 h-4" />
+    </button>
+  );
+
+  // Excel-style Small Button with text icon
+  const SmallButtonText = ({ label, title: btnTitle, onClick, active }: any) => (
+    <button
+      onClick={onClick}
+      title={btnTitle}
+      className={`w-7 h-7 flex items-center justify-center rounded transition-colors text-xs ${
+        active ? 'bg-[#cce4ff] border border-[#0078d4]' : 'hover:bg-[#e5f3ff]'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  // Excel-style Group Container
+  const ExcelGroup = ({ label, children }: any) => (
+    <div className="flex flex-col px-2 py-1 border-r border-[#c8c8c8] last:border-r-0">
+      <div className="flex items-start gap-1 flex-1">{children}</div>
+      <div className="text-[10px] text-[#666666] text-center mt-1">{label}</div>
     </div>
   );
+
+  // Excel-style Dropdown
+  const ExcelDropdown = ({ value, width = "auto", options, onChange }: any) => {
+    const [isOpen, setIsOpen] = useState(false);
+    return (
+      <div className="relative" style={{ width }}>
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className="h-[22px] px-2 bg-white border border-[#c8c8c8] rounded flex items-center justify-between w-full text-sm"
+        >
+          <span className="truncate">{value}</span>
+          <ChevronDownRegular className="w-[10px] h-[10px] ml-1" />
+        </button>
+        {isOpen && options && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#c8c8c8] rounded shadow-lg z-50 max-h-48 overflow-auto">
+              {options.map((opt: string) => (
+                <button
+                  key={opt}
+                  className="w-full px-2 py-1 text-left text-sm hover:bg-[#e5f3ff]"
+                  onClick={() => { onChange?.(opt); setIsOpen(false); }}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
 
   // Excel Viewer - using new ExcelSheet component
   const ExcelViewer = () => (
@@ -1681,298 +1845,121 @@ export default function Home() {
 
         {/* Center - Document Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Tabs - Centered at top of document area */}
-          <div className="bg-white border-b border-slate-200 px-6 py-2 flex items-center justify-center gap-1 shadow-sm">
-            {['home', 'insert', 'layout', 'formulas', 'data', 'view', 'settings'].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-                  activeTab === tab
-                    ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
-                    : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-              >
-                {tab === 'layout' ? 'Page Layout' : tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </button>
-            ))}
-          </div>
-
-          {/* Ribbon Content */}
-          <div className={`bg-white border-b border-slate-200 overflow-x-auto overflow-y-hidden transition-all duration-300 ${ribbonExpanded ? 'block h-auto' : 'hidden h-0'}`}>
-            {/* HOME TAB */}
-            {ribbonExpanded && activeTab === 'home' && (
-              <div className="flex gap-0.5 p-2">
-                <RibbonGroup title="Clipboard">
-                  <RibbonButton icon={Clipboard} label="Paste" onClick={handlePaste} />
-                  <RibbonButton icon={Copy} label="Copy" onClick={handleCopy} />
-                  <RibbonButton icon={Trash2} label="Cut" onClick={handleCut} />
-                </RibbonGroup>
-
-                <RibbonGroup title="Font">
-                  <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} className="px-2 py-1 text-xs border border-slate-200 rounded">
-                    <option>Calibri</option>
-                    <option>Arial</option>
-                    <option>Times New Roman</option>
-                  </select>
-                  <select value={fontSize} onChange={(e) => setFontSize(e.target.value)} className="px-2 py-1 text-xs border border-slate-200 rounded">
-                    <option>9</option>
-                    <option>11</option>
-                    <option>12</option>
-                    <option>14</option>
-                  </select>
-                  <RibbonButton
-                    icon={Type}
-                    label="Apply"
-                    onClick={() => {
-                      if (fileType === 'excel') {
-                        updateExcelCellStyle(selectedCell, { fontFamily, fontSize: `${fontSize}px` });
-                      } else if (fileType === 'word') {
-                        setWordFontFamily(fontFamily);
-                        setWordFontSize(Number(fontSize));
-                      } else {
-                        toast.info('Font settings are available in Word/Excel view.');
-                      }
-                    }}
-                  />
-                  <RibbonButton
-                    icon={Bold}
-                    label="Bold"
-                    active={fileType === 'word'
-                      ? wordFormatting.bold
-                      : fileType === 'excel'
-                        ? (excelCellStyles[selectedCell]?.fontWeight === 'bold')
-                        : false}
-                    onClick={() => {
-                      if (fileType === 'word') setWordFormatting((p) => ({ ...p, bold: !p.bold }));
-                      else if (fileType === 'excel') toggleExcelStyleFlag(selectedCell, 'fontWeight');
-                      else toast.info('Bold is available in Word/Excel view.');
-                    }}
-                  />
-                  <RibbonButton
-                    icon={Italic}
-                    label="Italic"
-                    active={fileType === 'word'
-                      ? wordFormatting.italic
-                      : fileType === 'excel'
-                        ? (excelCellStyles[selectedCell]?.fontStyle === 'italic')
-                        : false}
-                    onClick={() => {
-                      if (fileType === 'word') setWordFormatting((p) => ({ ...p, italic: !p.italic }));
-                      else if (fileType === 'excel') toggleExcelStyleFlag(selectedCell, 'fontStyle');
-                      else toast.info('Italic is available in Word/Excel view.');
-                    }}
-                  />
-                  <RibbonButton
-                    icon={Underline}
-                    label="Underline"
-                    active={fileType === 'word'
-                      ? wordFormatting.underline
-                      : fileType === 'excel'
-                        ? (excelCellStyles[selectedCell]?.textDecoration === 'underline')
-                        : false}
-                    onClick={() => {
-                      if (fileType === 'word') setWordFormatting((p) => ({ ...p, underline: !p.underline }));
-                      else if (fileType === 'excel') toggleExcelStyleFlag(selectedCell, 'textDecoration');
-                      else toast.info('Underline is available in Word/Excel view.');
-                    }}
-                  />
-                </RibbonGroup>
-
-                <RibbonGroup title="Alignment">
-                  <RibbonButton
-                    icon={AlignLeft}
-                    label="Left"
-                    active={fileType === 'excel' && (excelCellStyles[selectedCell]?.textAlign === 'left' || !excelCellStyles[selectedCell]?.textAlign)}
-                    onClick={() => handleExcelAlignment('left')}
-                  />
-                  <RibbonButton
-                    icon={AlignCenter}
-                    label="Center"
-                    active={fileType === 'excel' && excelCellStyles[selectedCell]?.textAlign === 'center'}
-                    onClick={() => handleExcelAlignment('center')}
-                  />
-                  <RibbonButton
-                    icon={AlignRight}
-                    label="Right"
-                    active={fileType === 'excel' && excelCellStyles[selectedCell]?.textAlign === 'right'}
-                    onClick={() => handleExcelAlignment('right')}
-                  />
-                  <RibbonButton
-                    icon={AlignJustify}
-                    label="Justify"
-                    active={fileType === 'excel' && excelCellStyles[selectedCell]?.textAlign === 'justify'}
-                    onClick={() => handleExcelAlignment('justify')}
-                  />
-                </RibbonGroup>
-
-                <RibbonGroup title="Number">
-                  <RibbonButton icon={Percent} label="Percent" onClick={handleFormatPercent} />
-                  <RibbonButton icon={DollarSign} label="Currency" onClick={handleFormatCurrency} />
-                </RibbonGroup>
-
-                <RibbonGroup title="Cells">
-                  <RibbonButton icon={Plus} label="Insert" onClick={handleInsertRow} />
-                  <RibbonButton icon={Trash2} label="Delete" onClick={handleDeleteRow} />
-                  <RibbonButton icon={Settings} label="Format" onClick={() => toast.info('Cell styling not implemented yet.')} />
-                </RibbonGroup>
-
-                <RibbonGroup title="Paragraph">
-                  <RibbonButton icon={ChevronUp} label="Increase" onClick={() => handleParagraphIndent('increase')} />
-                  <RibbonButton icon={ChevronDown} label="Decrease" onClick={() => handleParagraphIndent('decrease')} />
-                  <RibbonButton icon={List} label="Spacing" onClick={handleParagraphSpacingToggle} />
-                </RibbonGroup>
-
-                <RibbonGroup title="Styles">
-                  <RibbonButton icon={Type} label="Normal" onClick={() => {
-                    if (fileType !== 'word') return toast.info('Styles are available in Word view.');
-                    setWordFontFamily('Times New Roman');
-                    setWordFontSize(14);
-                    setWordFormatting({ bold: false, italic: false, underline: false });
-                  }} />
-                  <RibbonButton icon={BarChart3} label="Heading 1" onClick={() => handleApplyHeading(1)} />
-                  <RibbonButton icon={BarChart3} label="Heading 2" onClick={() => handleApplyHeading(2)} />
-                </RibbonGroup>
-
-                <RibbonGroup title="Editing">
-                  <RibbonButton icon={Filter} label="Find" onClick={handleFind} />
-                  <RibbonButton icon={Zap} label="Replace" onClick={handleReplace} />
-                  <RibbonButton icon={Eye} label="Select" onClick={handleSelectAll} />
-                </RibbonGroup>
-              </div>
-            )}
-
-            {/* INSERT TAB */}
-            {ribbonExpanded && activeTab === 'insert' && (
-              <div className="flex gap-0.5 p-2 overflow-x-auto">
-                <RibbonGroup title="Tables">
-                  <RibbonButton icon={Grid} label="Table" onClick={handleInsertTable} />
-                </RibbonGroup>
-                <RibbonGroup title="Illustrations">
-                  <RibbonButton icon={Image} label="Picture" onClick={handleInsertPicture} />
-                  <RibbonButton icon={BarChart3} label="Chart" onClick={handleInsertChart} />
-                  <RibbonButton icon={Plus} label="Shapes" onClick={handleInsertShapes} />
-                </RibbonGroup>
-                <RibbonGroup title="Text">
-                  <RibbonButton icon={Type} label="Text Box" onClick={handleInsertTextBox} />
-                  <RibbonButton icon={FileText} label="Header" onClick={handleInsertHeader} />
-                  <RibbonButton icon={FileText} label="Footer" onClick={handleInsertFooter} />
-                </RibbonGroup>
-                <RibbonGroup title="Links">
-                  <RibbonButton icon={Link} label="Hyperlink" onClick={handleInsertHyperlink} />
-                  <RibbonButton icon={BookOpen} label="Bookmark" onClick={handleInsertBookmark} />
-                </RibbonGroup>
-              </div>
-            )}
-
-            {/* PAGE LAYOUT TAB */}
-            {ribbonExpanded && activeTab === 'layout' && (
-              <div className="flex gap-0.5 p-2 overflow-x-auto">
-                <RibbonGroup title="Page Setup">
-                  <RibbonButton icon={Columns} label="Margins" onClick={handleSetMargins} />
-                  <RibbonButton
-                    icon={Maximize2}
-                    label="Orientation"
-                    active={fileType === 'word' && wordOrientation === 'landscape'}
-                    onClick={handleOrientation}
-                  />
-                  <RibbonButton
-                    icon={Grid}
-                    label="Size"
-                    active={fileType === 'word' && wordPageSize === 'Letter'}
-                    onClick={handlePageSize}
-                  />
-                </RibbonGroup>
-                <RibbonGroup title="Sheet Options">
-                  <RibbonButton icon={Eye} label="Freeze Panes" active={fileType === 'excel' && excelFreezePanes} onClick={handleToggleFreezePanes} />
-                  <RibbonButton icon={Grid} label="Gridlines" onClick={handleToggleGridlines} />
-                </RibbonGroup>
-                <RibbonGroup title="Themes">
-                  <RibbonButton icon={Palette} label="Colors" onClick={handleThemeColors} />
-                  <RibbonButton icon={Type} label="Fonts" onClick={handleThemeFonts} />
-                </RibbonGroup>
-              </div>
-            )}
-
-            {/* FORMULAS TAB */}
-            {ribbonExpanded && activeTab === 'formulas' && (
-              <div className="flex gap-0.5 p-2 overflow-x-auto">
-                <RibbonGroup title="Financial">
-                  <RibbonButton icon={Sigma} label="SUM" onClick={() => handleApplyCommonFormula('SUM')} />
-                  <RibbonButton icon={TrendingUp} label="AVERAGE" onClick={() => handleApplyCommonFormula('AVERAGE')} />
-                  <RibbonButton icon={DollarSign} label="PMT" onClick={() => handleInsertFormula('=PMT(0.1/12,12,-10000)')} />
-                  <RibbonButton icon={BarChart3} label="NPV" onClick={() => handleInsertFormula('=NPV(0.1,1000,1000,1000)')} />
-                </RibbonGroup>
-                <RibbonGroup title="Logical">
-                  <RibbonButton icon={Zap} label="IF" onClick={() => handleInsertFormula('=IF(A1>0,\"YES\",\"NO\")')} />
-                  <RibbonButton icon={Zap} label="AND" onClick={() => handleInsertFormula('=AND(A1>0,B1>0)')} />
-                  <RibbonButton icon={Zap} label="OR" onClick={() => handleInsertFormula('=OR(A1>0,B1>0)')} />
-                </RibbonGroup>
-                <RibbonGroup title="Text">
-                  <RibbonButton icon={Type} label="CONCAT" onClick={handleConcat} />
-                  <RibbonButton icon={Type} label="LEN" onClick={handleLen} />
-                  <RibbonButton icon={Type} label="UPPER" onClick={handleUpper} />
-                </RibbonGroup>
-                <RibbonGroup title="Date & Time">
-                  <RibbonButton icon={Calendar} label="TODAY" onClick={handleToday} />
-                  <RibbonButton icon={Calendar} label="DATE" onClick={handleDate} />
-                </RibbonGroup>
-              </div>
-            )}
-          </div>
-
-            {/* DATA TAB */}
-            {ribbonExpanded && activeTab === 'data' && (
-              <div className="flex gap-0.5 p-2 overflow-x-auto">
-                <RibbonGroup title="Sort & Filter">
-                  <RibbonButton icon={ArrowUp} label="Sort A-Z" onClick={() => handleSortSelectedColumn('asc')} />
-                  <RibbonButton icon={ArrowDown} label="Sort Z-A" onClick={() => handleSortSelectedColumn('desc')} />
-                  <RibbonButton icon={Filter} label="AutoFilter" active={fileType === 'excel' && excelShowFilters} onClick={handleToggleAutoFilter} />
-                </RibbonGroup>
-                <RibbonGroup title="Data Tools">
-                  <RibbonButton icon={BarChart3} label="Subtotals" onClick={handleSubtotals} />
-                  <RibbonButton icon={Grid} label="Validation" onClick={handleValidation} />
-                  <RibbonButton icon={Zap} label="Text to Columns" onClick={handleTextToColumns} />
-                </RibbonGroup>
-              </div>
-            )}
-
-            {/* VIEW TAB */}
-            {ribbonExpanded && activeTab === 'view' && (
-              <div className="flex gap-0.5 p-2 overflow-x-auto">
-                <RibbonGroup title="Workbook Views">
-                  <RibbonButton icon={Eye} label="Normal" active={fileType === 'excel' && excelViewMode === 'normal'} onClick={() => handleSetViewMode('normal')} />
-                  <RibbonButton icon={Eye} label="Page Break" active={fileType === 'excel' && excelViewMode === 'pageBreak'} onClick={() => handleSetViewMode('pageBreak')} />
-                  <RibbonButton icon={Eye} label="Preview" active={fileType === 'word' && wordPreviewMode} onClick={handleToggleWordPreview} />
-                </RibbonGroup>
-                <RibbonGroup title="Show/Hide">
-                  <RibbonButton icon={Eye} label="Gridlines" active={fileType === 'excel' && excelShowGridlines} onClick={handleToggleGridlines} />
-                  <RibbonButton icon={Eye} label="Headers" active={fileType === 'excel' && excelShowHeaders} onClick={handleToggleHeaders} />
-                  <RibbonButton icon={Eye} label="Formulas" active={fileType === 'excel' && excelShowFormulas} onClick={handleToggleShowFormulas} />
-                </RibbonGroup>
-                <RibbonGroup title="Zoom">
-                  <RibbonButton icon={ZoomIn} label="Zoom In" onClick={handleZoomIn} />
-                  <RibbonButton icon={ZoomOut} label="Zoom Out" onClick={handleZoomOut} />
-                </RibbonGroup>
-              </div>
-            )}
-
-            {/* SETTINGS TAB */}
-            {ribbonExpanded && activeTab === 'settings' && (
-              <div className="flex gap-0.5 p-2 overflow-x-auto">
-                <RibbonGroup title="Options">
-                  <RibbonButton icon={Settings} label="Preferences" onClick={handleOpenPreferences} />
-                  <RibbonButton icon={Settings} label="Language" onClick={handleChangeLanguage} />
-                </RibbonGroup>
-                <RibbonGroup title="Help">
-                  <RibbonButton icon={HelpCircle} label="Help" onClick={handleOpenHelp} />
-                  <RibbonButton icon={Info} label="About" onClick={handleAbout} />
-                </RibbonGroup>
-              </div>
-            )}
+          <RibbonMenu
+            collapsed={!ribbonExpanded}
+            activeTab={activeTab}
+            onTabChange={(tab) => setActiveTab(tab)}
+            fontFamily={fileType === 'word' ? wordFontFamily : fontFamily}
+            fontSize={fileType === 'word' ? wordFontSize : Number(fontSize)}
+            bold={fileType === 'word' ? wordFormatting.bold : excelCellStyles[selectedCell]?.fontWeight === 'bold'}
+            italic={fileType === 'word' ? wordFormatting.italic : excelCellStyles[selectedCell]?.fontStyle === 'italic'}
+            underline={fileType === 'word' ? wordFormatting.underline : excelCellStyles[selectedCell]?.textDecoration === 'underline'}
+            strikethrough={false}
+            horizontalAlign={(excelCellStyles[selectedCell]?.textAlign as any) || 'left'}
+            verticalAlign={'middle'}
+            wrapText={false}
+            numberFormat={'General'}
+            onPaste={handlePaste}
+            onCopy={handleCopy}
+            onCut={handleCut}
+            onFontFamilyChange={(f) => {
+              if (fileType === 'word') setWordFontFamily(f);
+              else setFontFamily(f);
+              if (fileType === 'excel') updateExcelCellStyle(selectedCell, { fontFamily: f });
+            }}
+            onFontSizeChange={(s) => {
+              if (fileType === 'word') setWordFontSize(s);
+              else setFontSize(String(s));
+              if (fileType === 'excel') updateExcelCellStyle(selectedCell, { fontSize: `${s}px` });
+            }}
+            onBoldToggle={() => {
+              if (fileType === 'word') setWordFormatting((p: any) => ({ ...p, bold: !p.bold }));
+              else if (fileType === 'excel') toggleExcelStyleFlag(selectedCell, 'fontWeight');
+              else toast.info('Bold is available in Word/Excel view.');
+            }}
+            onItalicToggle={() => {
+              if (fileType === 'word') setWordFormatting((p: any) => ({ ...p, italic: !p.italic }));
+              else if (fileType === 'excel') toggleExcelStyleFlag(selectedCell, 'fontStyle');
+              else toast.info('Italic is available in Word/Excel view.');
+            }}
+            onUnderlineToggle={() => {
+              if (fileType === 'word') setWordFormatting((p: any) => ({ ...p, underline: !p.underline }));
+              else if (fileType === 'excel') toggleExcelStyleFlag(selectedCell, 'textDecoration');
+              else toast.info('Underline is available in Word/Excel view.');
+            }}
+            onStrikethroughToggle={() => toast.info('Strikethrough coming soon')}
+            onFontColorChange={(color) => {
+              if (fileType === 'excel') updateExcelCellStyle(selectedCell, { color });
+              else toast.info('Font color is available in Excel view.');
+            }}
+            onFillColorChange={(color) => {
+              if (fileType === 'excel') updateExcelCellStyle(selectedCell, { backgroundColor: color });
+              else toast.info('Fill color is available in Excel view.');
+            }}
+            onAlignLeft={() => handleExcelAlignment('left')}
+            onAlignCenter={() => handleExcelAlignment('center')}
+            onAlignRight={() => handleExcelAlignment('right')}
+            onAlignJustify={() => handleExcelAlignment('justify')}
+            onAlignTop={() => toast.info('Vertical align coming soon')}
+            onAlignMiddle={() => toast.info('Vertical align coming soon')}
+            onAlignBottom={() => toast.info('Vertical align coming soon')}
+            onWrapTextToggle={() => toast.info('Wrap text coming soon')}
+            onMergeCells={() => toast.info('Merge cells coming soon')}
+            onNumberFormatChange={(fmt) => toast.info(`Number format: ${fmt}`)}
+            onIncreaseDecimal={() => toast.info('Increase decimal')}
+            onDecreaseDecimal={() => toast.info('Decrease decimal')}
+            onInsertRow={handleInsertRow}
+            onInsertColumn={() => toast.info('Insert column coming soon')}
+            onDeleteRow={handleDeleteRow}
+            onDeleteColumn={() => toast.info('Delete column coming soon')}
+            onAutoSum={() => handleApplyCommonFormula('SUM')}
+            onSort={(dir) => handleSortSelectedColumn(dir)}
+            onFilter={handleToggleAutoFilter}
+            onFind={handleFind}
+            onReplace={handleReplace}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onClearContents={() => {
+              if (fileType === 'excel') updateExcelCell(selectedCell, '');
+              else toast.info('Clear contents is available in Excel view.');
+            }}
+            onAskAI={() => setAiAssistantVisible(true)}
+            onAnalyze={() => toast.info('Analyze coming soon')}
+            onRegulatoryReturn={() => toast.info('Regulatory returns coming soon')}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onToggleGridlines={handleToggleGridlines}
+            onToggleFormulaBar={handleToggleShowFormulas}
+            onFreezePanes={handleToggleFreezePanes}
+            onToggleDarkMode={() => toast.info('Dark mode coming soon')}
+            showGridlines={excelShowGridlines}
+            showFormulaBar={excelShowFormulas}
+            isDarkMode={false}
+            canUndo={historyIndex > 0}
+            canRedo={historyIndex < history.length - 1}
+            zoom={Math.round((fileType === 'excel' ? excelZoom : wordZoom) * 100)}
+            onCommand={(command) => {
+              switch (command) {
+                case 'insert.tables.table':
+                  handleInsertTable();
+                  return;
+                case 'pageLayout.pageSetup.margins':
+                  handleSetMargins();
+                  return;
+                case 'pageLayout.pageSetup.orientation':
+                  handleOrientation();
+                  return;
+                case 'data.dataTools.textToColumns':
+                  handleTextToColumns();
+                  return;
+                default:
+                  toast.info(`${command} (coming soon)`);
+              }
+            }}
+          />
 
           {/* Collapse/Expand Toggle Button - Centered */}
-          <div className="flex justify-center py-1 bg-white border-b border-slate-200">
+          <div className="flex justify-center py-1 bg-[#f3f3f3] border-b border-[#d4d4d4]">
             <button
               onClick={() => setRibbonExpanded(!ribbonExpanded)}
               className="flex items-center justify-center w-6 h-6 rounded hover:bg-slate-100 transition-colors text-slate-600 hover:text-slate-900"
@@ -1998,7 +1985,7 @@ export default function Home() {
         {!aiAssistantVisible && (
           <button
             onClick={() => setAiAssistantVisible(true)}
-            className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110 z-50"
+            className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-slate-700 hover:bg-slate-800 text-white shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110 z-50"
             title="Open AI Assistant"
           >
             <Sparkles className="w-6 h-6" />
@@ -2011,7 +1998,7 @@ export default function Home() {
           {/* Header */}
           <div className="p-4 border-b border-slate-200 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-blue-600" />
+              <Sparkles className="w-4 h-4 text-slate-700" />
               <h3 className="text-sm font-semibold text-slate-900">AI Assistant</h3>
             </div>
             <div className="flex items-center gap-1">
@@ -2024,31 +2011,61 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Structured AI output */}
+          {/* Unified AI output */}
           <ScrollArea className="flex-1 p-4">
-            <AIPanel isLoading={isAiLoading} response={aiResponse} />
+            {hasAskedAiQuery ? (
+              <div className="mt-4 rounded border border-slate-200 bg-white p-2 max-h-[60vh] overflow-hidden">
+                <div className="mb-3 max-h-56 overflow-auto space-y-2">
+                  {aiMessages.map((msg, idx) => (
+                    <div
+                      key={`${msg.role}-${idx}`}
+                      className={`rounded px-3 py-2 text-xs ${
+                        msg.role === 'user'
+                          ? 'bg-slate-100 text-slate-800'
+                          : 'bg-slate-50 border border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {msg.content}
+                    </div>
+                  ))}
+                  {aiMessages.length === 0 && aiSidebarMessage && (
+                    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                      {aiSidebarMessage}
+                    </div>
+                  )}
+                </div>
+                {showPendingOpsPanel && <PendingOperationsPanel sessionId={sessionId ?? "api-v2"} />}
+              </div>
+            ) : (
+              <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                Ask a spreadsheet question to see AI proposed operations.
+              </div>
+            )}
           </ScrollArea>
 
           {/* Input */}
           <div className="p-4 border-t border-slate-200">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                Mode
-              </span>
+            <div className="mb-3 flex items-center gap-2">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="outline"
                     size="sm"
                     className="h-7 gap-2 px-2 border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                    title="AI mode"
+                    title="Agent mode"
                   >
                     <Infinity className="h-4 w-4" />
                     <span className="text-xs font-semibold">{aiModeLabel(aiMode)}</span>
                     <ChevronDown className="h-4 w-4 opacity-60" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuContent
+                  align="start"
+                  side="bottom"
+                  sideOffset={4}
+                  avoidCollisions={false}
+                  className="w-36"
+                >
                   <DropdownMenuItem onClick={() => setAiMode('agent')} className="gap-2">
                     <Infinity className="h-4 w-4" />
                     <span>Agent</span>
@@ -2065,6 +2082,45 @@ export default function Home() {
                     <MessageCircleQuestion className="h-4 w-4" />
                     <span>Ask</span>
                   </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-2 px-2 border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    title="Auto mode settings"
+                  >
+                    <span className="text-xs font-semibold">Auto</span>
+                    <ChevronDown className="h-4 w-4 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56 p-2">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between rounded border border-slate-200 px-2 py-1.5">
+                      <span className="text-xs font-semibold text-slate-700">Auto</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={autoModeEnabled}
+                        aria-label="Toggle auto mode"
+                        onClick={() => setAutoModeEnabled((prev) => !prev)}
+                        className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${
+                          autoModeEnabled ? 'bg-blue-600' : 'bg-slate-300'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${
+                            autoModeEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <p className="text-[10px] leading-tight text-slate-500">
+                      Balanced quality and speed, recommended for most tasks.
+                    </p>
+                  </div>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

@@ -1,33 +1,61 @@
-import express from "express";
 import cors from "cors";
-import { apiAuth } from "./middleware/apiAuth";
-import { healthRouter } from "./api/routes/health";
-import { uploadRouter } from "./api/routes/upload";
-import { aiRouter } from "./api/routes/ai";
-import { tablesRouter } from "./api/routes/tables";
-import { realtimeRouter } from "./api/routes/realtime";
-import { startStreamingConsumers } from "./streaming/consumers";
+import express from "express";
+import { env, hasClaude, hasGroq, hasOpenRouter, hasSupabase } from "./config/env.js";
+import { requireAuth } from "./middleware/auth.js";
+import { adminRouter } from "./routes/admin.js";
+import { aiRouter } from "./routes/ai.js";
+import { alertsRouter } from "./routes/alerts.js";
+import { authRouter } from "./routes/auth.js";
+import { filesRouter } from "./routes/files.js";
+import { realtimeRouter } from "./routes/realtime.js";
+import { reportsRouter } from "./routes/reports.js";
+import { routerRouter } from "./routes/router.js";
+import { spreadsheetRouter } from "./routes/spreadsheet.js";
 
-export function createApp() {
-  const app = express();
-  startStreamingConsumers();
-  app.use(cors());
-  app.use(express.json());
-  app.use("/api", apiAuth);
-  app.use("/api", healthRouter);
-  app.use("/api", uploadRouter);
-  app.use("/api", aiRouter);
-  app.use("/api", tablesRouter);
-  app.use("/api", realtimeRouter);
-  app.use((_req, res) => {
-    res.status(404).json({ error: "Not found" });
-  });
-  return app;
-}
+const app = express();
+const port = env.port;
 
-const port = Number(process.env.PORT ?? 3001);
-if (process.env.NODE_ENV !== "test") {
-  createApp().listen(port, () => {
-    console.log(`Meridian API listening on ${port}`);
+app.use(cors());
+app.use(express.json({ limit: "1mb" }));
+
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", service: "kenyan-financial-ide-server" });
+});
+
+app.use("/api/ai", requireAuth, aiRouter);
+app.use("/api/spreadsheet", requireAuth, spreadsheetRouter);
+app.use("/api/files", filesRouter);
+app.use("/api", filesRouter);
+app.use("/api/reports", reportsRouter);
+app.use("/api/auth", authRouter);
+app.use("/api/admin", adminRouter);
+app.use("/api/router", routerRouter);
+app.use("/api/realtime", realtimeRouter);
+app.use("/api/alerts", alertsRouter);
+
+const server = app.listen(port, () => {
+  // eslint-disable-next-line no-console
+  console.log(`Server running on http://localhost:${port}`);
+  // eslint-disable-next-line no-console
+  console.log(
+    `[startup] providers: claude=${hasClaude()} groq=${hasGroq()} openrouter=${hasOpenRouter()} supabase=${hasSupabase()}`
+  );
+  // eslint-disable-next-line no-console
+  console.log("[startup] routes: /health /api/router/health /api/router/select /api/router/debug-score /api/ai/chat");
+});
+
+process.on("uncaughtException", (error) => {
+  // eslint-disable-next-line no-console
+  console.error("[fatal] uncaughtException", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  // eslint-disable-next-line no-console
+  console.error("[fatal] unhandledRejection", reason);
+});
+
+process.on("SIGTERM", () => {
+  server.close(() => {
+    process.exit(0);
   });
-}
+});

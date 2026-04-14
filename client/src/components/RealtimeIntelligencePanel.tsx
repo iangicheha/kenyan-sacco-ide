@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bell, Activity, AlertTriangle } from "lucide-react";
+import { apiUrl } from "@/lib/api";
 
 type RealtimeMetrics = {
   transactionCount: number;
@@ -36,8 +37,8 @@ export function RealtimeIntelligencePanel() {
     const tick = async () => {
       try {
         const [stateRes, alertRes] = await Promise.all([
-          fetch("http://localhost:3001/api/realtime/state"),
-          fetch("http://localhost:3001/api/alerts"),
+          fetch(apiUrl("/api/realtime/state")),
+          fetch(apiUrl("/api/alerts")),
         ]);
         if (!stateRes.ok || !alertRes.ok || cancelled) return;
         const stateJson = await stateRes.json();

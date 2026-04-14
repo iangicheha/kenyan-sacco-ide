@@ -1,0 +1,10 @@
+{
+  "loan_provisioning": {
+    "normal": 0.01,
+    "watch": 0.03,
+    "substandard": 0.2,
+    "doubtful": 0.5,
+    "loss": 1.0,
+    "reference": "CBK/PG/15 Section 4.2"
+  }
+}

@@ -1,1 +1,0 @@
-ALTER TABLE `pendingOperations` MODIFY COLUMN `affectedCells` json NOT NULL;

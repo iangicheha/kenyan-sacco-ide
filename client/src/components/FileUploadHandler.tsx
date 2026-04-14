@@ -1,22 +1,90 @@
+/**
+ * FileUploadHandler.tsx
+ *
+ * Phase 2: Core Agentic Loop - XLSX/CSV Upload Pipeline
+ *
+ * Flow:
+ * 1. User selects file(s)
+ * 2. Create session via /upload
+ * 3. Upload file(s) to session
+ * 4. Parse and populate cell graph
+ * 5. Return session ID for AI operations
+ */
+
 import { useState } from "react";
+import { apiUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Upload, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Upload, Loader2, CheckCircle2, AlertCircle, FileSpreadsheet } from "lucide-react";
 
 interface FileUploadHandlerProps {
-  onUploadSuccess?: (data: any) => void;
+  sessionId?: string;
+  onSessionCreated?: (sessionId: string) => void;
+  onUploadSuccess?: (data: { sessionId: string; fileName: string; rowCount: number }) => void;
   onUploadError?: (error: string) => void;
 }
 
-export function FileUploadHandler({ onUploadSuccess, onUploadError }: FileUploadHandlerProps) {
+export function FileUploadHandler({
+  sessionId: existingSessionId,
+  onSessionCreated,
+  onUploadSuccess,
+  onUploadError,
+}: FileUploadHandlerProps) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(existingSessionId || null);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [statusMessage, setStatusMessage] = useState("");
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    setSelectedFiles(files);
+    // Filter to only XLSX and CSV
+    const validFiles = files.filter(f =>
+      f.name.endsWith('.xlsx') ||
+      f.name.endsWith('.xls') ||
+      f.name.endsWith('.csv')
+    );
+    setSelectedFiles(validFiles);
     setUploadStatus("idle");
+  };
+
+  const createSession = async () => {
+    if (!selectedFiles.length) return null;
+
+    setIsCreatingSession(true);
+    try {
+      const response = await fetch(apiUrl("/api/trpc/spreadsheet.upload"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          sessionTitle: `Spreadsheet Session - ${selectedFiles[0].name}`,
+          sessionDescription: `Uploaded ${selectedFiles.length} file(s)`,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create session");
+      }
+
+      const result = await response.json();
+      const newSessionId = result.result?.data?.sessionId;
+
+      if (!newSessionId) {
+        throw new Error("No session ID returned");
+      }
+
+      setSessionId(newSessionId);
+      onSessionCreated?.(newSessionId);
+      return newSessionId;
+    } catch (error) {
+      setUploadStatus("error");
+      setStatusMessage(`Session creation failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+      onUploadError?.(statusMessage);
+      return null;
+    } finally {
+      setIsCreatingSession(false);
+    }
   };
 
   const handleUpload = async () => {
@@ -28,25 +96,47 @@ export function FileUploadHandler({ onUploadSuccess, onUploadError }: FileUpload
 
     setIsUploading(true);
     setUploadStatus("uploading");
-    setStatusMessage("Uploading and parsing files...");
+    setStatusMessage("Creating session and parsing files...");
 
-    const formData = new FormData();
-    selectedFiles.forEach(file => formData.append("files", file));
+    // Get or create session
+    const currentSessionId = sessionId || await createSession();
+    if (!currentSessionId) {
+      setIsUploading(false);
+      return;
+    }
+
+    // Upload and parse each file
+    const results: Array<{ fileName: string; rowCount: number }> = [];
 
     try {
-      const response = await fetch("http://localhost:3001/api/upload", {
-        method: "POST",
-        body: formData,
-      });
+      for (const file of selectedFiles) {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("sessionId", currentSessionId);
 
-      if (!response.ok) {
-        throw new Error(`Upload failed with status ${response.status}`);
+        const response = await fetch(apiUrl("/api/upload-file"), {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to upload ${file.name}`);
+        }
+
+        const result = await response.json();
+        results.push({
+          fileName: file.name,
+          rowCount: result.rowCount || 0,
+        });
       }
 
-      const result = await response.json();
       setUploadStatus("success");
-      setStatusMessage(`Successfully uploaded ${selectedFiles.length} file(s).`);
-      onUploadSuccess?.(result.data);
+      setStatusMessage(`Successfully processed ${results.length} file(s). Total rows: ${results.reduce((a, b) => a + b.rowCount, 0)}`);
+      onUploadSuccess?.({
+        sessionId: currentSessionId,
+        fileName: results[0]?.fileName || "unknown",
+        rowCount: results.reduce((a, b) => a + b.rowCount, 0),
+      });
       setSelectedFiles([]);
     } catch (error) {
       setUploadStatus("error");

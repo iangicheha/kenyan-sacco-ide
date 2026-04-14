@@ -155,16 +155,9 @@ const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(
 
 export default defineConfig({
   plugins,
-  /** Server tests live under ./server; Vitest must use repo root so Node deps (e.g. xlsx, cors) resolve. */
-  test: {
-    root: PROJECT_ROOT,
-    environment: "node",
-    include: ["server/**/*.test.ts"],
-  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
     },
   },

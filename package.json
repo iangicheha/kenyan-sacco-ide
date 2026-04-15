@@ -8,6 +8,7 @@
     "dev:server": "tsx server/index.ts",
     "dev:full": "powershell -Command \"Start-Process pnpm -ArgumentList 'dev:server'; pnpm dev\"",
     "router:debug": "node scripts/router-debug.mjs",
+    "cleanup:retention": "tsx scripts/cleanup-retention.ts",
     "build": "vite build",
     "check": "tsc --noEmit",
     "test": "pnpm test:server",

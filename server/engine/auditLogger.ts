@@ -1,3 +1,4 @@
+import { env } from "../config/env.js";
 import { getSupabase } from "../lib/supabase.js";
 import type { AuditLogEntry } from "../types.js";
 
@@ -15,8 +16,12 @@ export async function appendAuditLog(entry: AuditLogEntry): Promise<void> {
       analyst: entry.analyst,
       timestamp: entry.timestamp,
       ai_reasoning: entry.aiReasoning,
+      correlation_id: entry.correlationId ?? null,
     });
     if (!error) return;
+  }
+  if (!env.allowInMemoryFallback) {
+    throw new Error("Failed to write audit log and in-memory fallback is disabled.");
   }
   auditLogStore.push(entry);
 }
@@ -40,8 +45,10 @@ export async function getAuditLog(sessionId: string): Promise<AuditLogEntry[]> {
         analyst: row.analyst,
         timestamp: row.timestamp,
         aiReasoning: row.ai_reasoning,
+        correlationId: row.correlation_id ?? undefined,
       }));
     }
   }
+  if (!env.allowInMemoryFallback) return [];
   return auditLogStore.filter((entry) => entry.sessionId === sessionId);
 }

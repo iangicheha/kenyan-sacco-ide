@@ -5,6 +5,7 @@ import { z } from "zod";
 const loginSchema = z.object({
   email: z.string().email(),
   institutionType: z.enum(["bank", "sacco", "mfi"]),
+  role: z.enum(["read-only", "analyst", "reviewer", "admin"]).default("analyst"),
 });
 
 export const authRouter = Router();
@@ -23,6 +24,7 @@ authRouter.post("/login", (req, res) => {
     {
       email: parsed.data.email,
       institutionType: parsed.data.institutionType,
+      role: parsed.data.role,
     },
     JWT_SECRET,
     { expiresIn: "8h" }
@@ -33,6 +35,7 @@ authRouter.post("/login", (req, res) => {
     user: {
       email: parsed.data.email,
       institutionType: parsed.data.institutionType,
+      role: parsed.data.role,
     },
   });
 });

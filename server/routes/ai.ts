@@ -1,7 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
+import { classifyIntent } from "../agents/intentClassifier.js";
 import { getUploadedFileSheetNames, getUploadedSheet } from "../data/uploadStore.js";
+import { emitOrchestratorEvent } from "../engine/orchestratorTelemetry.js";
+import { getRequestContext } from "../engine/requestContext.js";
 import { askRoutedJson } from "../lib/modelRouterClient.js";
+import type { AuthenticatedRequest } from "../middleware/auth.js";
 import { buildRoutingInput } from "../model-router/catalog.js";
 import { selectModelRoute } from "../model-router/router.js";
 import { runPlanningPipeline } from "../pipeline/runAiPipeline.js";
@@ -18,7 +22,15 @@ const requestSchema = z.object({
 export const aiRouter = Router();
 
 function wantsFileSummary(prompt: string): boolean {
-  return /read|about the file|summar|analy[sz]e.*file|what.*file|columns?|headers?|preview/i.test(prompt);
+  // Only match requests for basic metadata/preview, NOT analysis questions
+  // "show columns", "what headers", "preview" -> metadata only
+  // "analyze", "what's inside", "tell me about the data" -> AI analysis
+  const text = prompt.toLowerCase();
+  const isMetadataOnly = /\b(columns?|headers?|preview|show.*structure|file info|metadata)\b/i.test(text);
+  const isAnalysisQuestion = /\b(analy[sz]e|what.*inside|what.*data|tell me about|explain|insights|meaning|trends|patterns)\b/i.test(text);
+
+  // If it's a metadata request AND not an analysis question, return summary
+  return isMetadataOnly && !isAnalysisQuestion;
 }
 
 function isGreetingOrSmallTalk(prompt: string): boolean {
@@ -32,7 +44,7 @@ function buildFileSummary(fileName: string, sheetName?: string) {
   if (!targetSheetName) {
     return {
       status: "file_summary",
-      summary: `I cannot find "${fileName}" in the upload cache yet. Please upload it again.`,
+      summary: `**File Not Found**: "${fileName}" is not in the upload cache. Please upload the file again.`,
     };
   }
 
@@ -40,7 +52,7 @@ function buildFileSummary(fileName: string, sheetName?: string) {
   if (!sheet) {
     return {
       status: "file_summary",
-      summary: `I found "${fileName}" but not sheet "${targetSheetName}".`,
+      summary: `**Sheet Not Found**: "${fileName}" loaded, but sheet "${targetSheetName}" not found. Available: ${availableSheets.join(", ")}`,
     };
   }
 
@@ -52,7 +64,11 @@ function buildFileSummary(fileName: string, sheetName?: string) {
     rowCount: sheet.rows.length,
     headers: sheet.headers,
     previewRows: sampleRows,
-    summary: `I read "${fileName}" (${targetSheetName}). It has ${sheet.rows.length} rows and ${sheet.headers.length} columns: ${sheet.headers.join(", ")}.`,
+    summary: `**File:** ${fileName}
+**Sheet:** ${targetSheetName}
+**Dimensions:** ${sheet.rows.length} rows × ${sheet.headers.length} columns
+**Columns:** ${sheet.headers.join(", ")}
+**Preview:** First 5 rows loaded.`,
   };
 }
 
@@ -69,7 +85,7 @@ function buildSheetContext(fileName: string, prompt: string, sheetName?: string)
   const resolved = resolveSheet(fileName, sheetName);
   if (!resolved) return null as null;
   const { sheet, targetSheetName } = resolved;
-  const sampleRows = sheet.rows.slice(0, 50);
+  const sampleRows = sheet.rows.slice(0, 100);
   return {
     fileName,
     sheetName: targetSheetName,
@@ -78,10 +94,6 @@ function buildSheetContext(fileName: string, prompt: string, sheetName?: string)
     sampleRows,
     prompt,
   };
-}
-
-function wantsOperationalPlan(prompt: string): boolean {
-  return /formula|provision|calculate|apply|write|fill|update|fix|generate.*report|sasra/i.test(prompt);
 }
 
 async function answerConversationally(input: {
@@ -108,8 +120,18 @@ async function answerConversationally(input: {
 
   const modelResult = await askRoutedJson<{ answer?: string; response?: string }>({
     route,
-    system:
-      "You are a helpful spreadsheet assistant. Answer naturally like a normal chat assistant. If file context is present, use it. Return strict JSON: {\"answer\":\"...\"}.",
+    system: `You are a Meridian Financial AI spreadsheet assistant for Kenyan SACCOs and financial institutions.
+
+Provide clear, professional responses about spreadsheet data and financial operations.
+
+GUIDELINES:
+- Be concise and professional
+- Reference specific columns, ranges, or cells when applicable
+- Cite regulatory guidelines (CBK, SASRA, IRA, RBA, CMA) when relevant
+- If file context is provided, base your answer on that data
+- For calculations, explain the formula logic, not just the result
+
+Return strict JSON: {"answer": "your response string"}`,
     user: JSON.stringify({
       prompt: input.prompt,
       context: contextNote,
@@ -137,8 +159,19 @@ async function answerFileQuestionWithModel(fileName: string, prompt: string, she
 
   const modelResult = await askRoutedJson<{ answer?: string }>({
     route,
-    system:
-      "You are a spreadsheet analyst. Answer ONLY from the provided sheet context. If data is insufficient, say what is missing. Return strict JSON: {\"answer\":\"...\"}.",
+    system: `You are a Meridian Financial AI spreadsheet analyst for Kenyan SACCOs and financial institutions.
+
+Analyze the provided spreadsheet data and provide structured insights.
+
+GUIDELINES:
+- Answer ONLY from the provided sheet context
+- Reference specific column names, row ranges, or cell addresses
+- Highlight anomalies, trends, or compliance issues where relevant
+- If data is insufficient, clearly state what is missing
+- For financial metrics, explain the calculation methodology
+- Cite regulatory guidelines (CBK, SASRA) when applicable
+
+Return strict JSON: {"answer": "your response string"}`,
     user: JSON.stringify(context),
   });
 
@@ -156,53 +189,111 @@ async function answerFileQuestionWithModel(fileName: string, prompt: string, she
 }
 
 aiRouter.post("/chat", async (req, res) => {
-  const parsed = requestSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({
-      error: "Invalid request body.",
-      details: parsed.error.flatten(),
+  const request = req as AuthenticatedRequest;
+  const context = getRequestContext(req);
+  try {
+    res.setHeader("x-correlation-id", context.correlationId);
+    const parsed = requestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid request body.",
+        correlationId: context.correlationId,
+        details: parsed.error.flatten(),
+      });
+    }
+    await emitOrchestratorEvent({
+      correlationId: context.correlationId,
+      sessionId: parsed.data.sessionId,
+      stage: "ingest",
+      status: "ok",
+      details: {
+        hasFileContext: Boolean(parsed.data.fileName),
+      },
     });
-  }
 
-  if (parsed.data.fileName && wantsFileSummary(parsed.data.prompt)) {
-    return res.json(buildFileSummary(parsed.data.fileName, parsed.data.sheetName));
-  }
+    if (parsed.data.fileName && wantsFileSummary(parsed.data.prompt)) {
+      await emitOrchestratorEvent({
+        correlationId: context.correlationId,
+        sessionId: parsed.data.sessionId,
+        stage: "file_summary_shortcut",
+        status: "ok",
+      });
+      return res.json({ ...buildFileSummary(parsed.data.fileName, parsed.data.sheetName), correlationId: context.correlationId });
+    }
 
-  if (isGreetingOrSmallTalk(parsed.data.prompt)) {
-    return res.json(
-      await answerConversationally({
+    if (isGreetingOrSmallTalk(parsed.data.prompt)) {
+      await emitOrchestratorEvent({
+        correlationId: context.correlationId,
+        sessionId: parsed.data.sessionId,
+        stage: "small_talk",
+        status: "ok",
+      });
+      const response = await answerConversationally({
         prompt: parsed.data.prompt,
         fileName: undefined,
         sheetName: undefined,
-      })
-    );
-  }
-
-  if (!wantsOperationalPlan(parsed.data.prompt)) {
-    if (parsed.data.fileName) {
-      const answer = await answerFileQuestionWithModel(parsed.data.fileName, parsed.data.prompt, parsed.data.sheetName);
-      if (answer) return res.json(answer);
+      });
+      return res.json(
+        { ...response, correlationId: context.correlationId }
+      );
     }
-    return res.json(
-      await answerConversationally({
+
+    const classifyStartedAt = Date.now();
+    const inferredIntent = await classifyIntent(parsed.data.prompt, parsed.data.regulator as Regulator);
+    await emitOrchestratorEvent({
+      correlationId: context.correlationId,
+      sessionId: parsed.data.sessionId,
+      stage: "classify_route",
+      status: "ok",
+      durationMs: Date.now() - classifyStartedAt,
+      details: { confidence: inferredIntent.confidence, intent: inferredIntent.intent },
+    });
+    const shouldRunOperationalPipeline = inferredIntent.confidence >= 0.8 && inferredIntent.intent !== "unknown";
+
+    if (!shouldRunOperationalPipeline) {
+      await emitOrchestratorEvent({
+        correlationId: context.correlationId,
+        sessionId: parsed.data.sessionId,
+        stage: "route_non_operational",
+        status: "fallback",
+        details: { intent: inferredIntent.intent, confidence: inferredIntent.confidence },
+      });
+      if (parsed.data.fileName) {
+        const answer = await answerFileQuestionWithModel(parsed.data.fileName, parsed.data.prompt, parsed.data.sheetName);
+        if (answer) return res.json({ ...answer, correlationId: context.correlationId });
+      }
+      const response = await answerConversationally({
         prompt: parsed.data.prompt,
         fileName: parsed.data.fileName,
         sheetName: parsed.data.sheetName,
-      })
-    );
+      });
+      return res.json(
+        { ...response, correlationId: context.correlationId }
+      );
+    }
+
+    const result = await runPlanningPipeline({
+      sessionId: parsed.data.sessionId,
+      analystPrompt: parsed.data.prompt,
+      regulator: parsed.data.regulator as Regulator,
+      correlationId: context.correlationId,
+      actor: request.user?.email ?? "system",
+      preclassifiedIntent: inferredIntent,
+    });
+
+    if (result.status === "clarification_required" && parsed.data.fileName) {
+      const answer = await answerFileQuestionWithModel(parsed.data.fileName, parsed.data.prompt, parsed.data.sheetName);
+      if (answer) return res.json({ ...answer, correlationId: context.correlationId });
+      return res.json({ ...buildFileSummary(parsed.data.fileName, parsed.data.sheetName), correlationId: context.correlationId });
+    }
+
+    return res.json({ ...result, correlationId: context.correlationId });
+  } catch (error) {
+    console.error("AI chat route error:", error);
+    return res.status(500).json({
+      error: "Failed to process AI request.",
+      message: "Please retry in a moment.",
+      correlationId: context.correlationId,
+    });
   }
-
-  const result = await runPlanningPipeline({
-    sessionId: parsed.data.sessionId,
-    analystPrompt: parsed.data.prompt,
-    regulator: parsed.data.regulator as Regulator,
-  });
-
-  if (result.status === "clarification_required" && parsed.data.fileName) {
-    const answer = await answerFileQuestionWithModel(parsed.data.fileName, parsed.data.prompt, parsed.data.sheetName);
-    if (answer) return res.json(answer);
-    return res.json(buildFileSummary(parsed.data.fileName, parsed.data.sheetName));
-  }
-
-  return res.json(result);
 });

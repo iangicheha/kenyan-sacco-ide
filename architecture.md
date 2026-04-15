@@ -1,240 +1,114 @@
-# AI Backend Architecture
+# Financial AI IDE Architecture
 
-This document describes how the AI backend works end-to-end in this project, including request flow, routing logic, model selection, file-context handling, and operation pipelines.
+This document defines the architecture baseline and production target for a Cursor-like AI IDE tailored to financial institutions.
 
-## 1) High-Level Architecture
+## 1) System Purpose
 
-The backend is an Express server with feature routers. AI behavior is centered around:
+The platform enables analysts to ask natural-language questions and request spreadsheet operations, while keeping execution deterministic, controlled, and auditable.
 
-- `server/index.ts` (route mounting + server boot)
-- `server/routes/ai.ts` (main AI controller for `/api/ai/chat`)
-- `server/lib/modelRouterClient.ts` (provider/model invocation layer)
-- `server/model-router/*` (model catalog + deterministic route selection)
-- `server/pipeline/runAiPipeline.ts` (operation-planning workflow)
-- `server/routes/files.ts` + `server/data/uploadStore.ts` (uploaded file ingestion and in-memory context)
+Primary principle:
 
-There are effectively two AI modes:
+- AI interprets and plans.
+- Deterministic services execute.
+- Humans approve risky mutations.
 
-1. **Conversational/File Q&A mode** (normal chat-like responses)
-2. **Operational planning mode** (returns pending spreadsheet actions for human approval)
+## 2) Current Runtime Architecture
 
-## 2) Entry Point and Route Mounting
+Core modules:
 
-In `server/index.ts`:
+- `server/routes/ai.ts` - AI request entrypoint and high-level request routing.
+- `server/pipeline/runAiPipeline.ts` - planning orchestration, confidence gate, pending operation creation.
+- `server/agents/intentClassifier.ts` - intent and scope classification.
+- `server/agents/financialPlanner.ts` - structured operation plan generation.
+- `server/engine/pendingOps.ts` - pending operations persistence (Supabase or in-memory fallback).
+- `server/routes/spreadsheet.ts` - review endpoints (`pending`, `accept`, `reject`, `audit`).
+- `server/lib/modelRouterClient.ts` + `server/model-router/*` - provider/model selection and invocation.
 
-- `app.use("/api/ai", requireAuth, aiRouter)` protects AI chat endpoint with JWT auth.
-- `app.use("/api/spreadsheet", requireAuth, spreadsheetRouter)` handles accept/reject/pending operations.
-- `app.use("/api/files", filesRouter)` handles file upload and preview.
-- `app.use("/api", filesRouter)` keeps backward compatibility aliases (`/api/upload`, etc.).
+Current flow:
 
-All AI calls from UI eventually hit:
+1. Request received and validated.
+2. Classifier infers intent.
+3. Low-risk/non-operational prompts return conversational or file-aware responses.
+4. Operational prompts enter planning pipeline.
+5. Planner returns action list.
+6. Formulas are validated.
+7. Actions become pending operations.
+8. Human accept/reject drives final execution and audit logging.
 
-- `POST /api/ai/chat`
+## 3) Target Production Architecture
 
-## 3) Authentication Boundary
+### A) Experience Layer
 
-`server/middleware/auth.ts` enforces Bearer token auth:
+- Web IDE for analyst workflows (chat, sheet context, operation review, trace view).
+- Mode switching: `chat`, `analyze`, `propose_actions`, `review`.
 
-- Missing token -> `401 Missing bearer token`
-- Invalid/expired token -> `401 Invalid or expired token`
-- Valid token -> request continues with `req.user`
+### B) AI Control Plane
 
-This means AI routes are authenticated by design.
+- Classifier, planner, and verifier services with strict JSON contracts.
+- Model router with provider health, timeout, retry, and cost-aware policies.
+- Prompt/version registry with controlled rollout.
 
-## 4) AI Request Contract
+### C) Policy and Governance Plane
 
-In `server/routes/ai.ts` request schema:
+- Regulator rule engine (CBK, SASRA, IRA, RBA, CMA).
+- RBAC + maker-checker approvals.
+- Action allow/deny lists by role, institution type, and risk class.
 
-- `sessionId: string` (required)
-- `prompt: string` (required)
-- `regulator: "CBK" | "SASRA" | "IRA" | "RBA" | "CMA"` (default `CBK`)
-- `fileName?: string`
-- `sheetName?: string`
+### D) Deterministic Execution Plane
 
-`fileName/sheetName` enable contextual Q&A against uploaded spreadsheet data.
+- Formula compiler/validator and deterministic numeric engine.
+- Versioned execution semantics to avoid silent behavior drift.
+- Idempotent command processing.
 
-## 5) Decision Flow in `ai.ts`
+### E) Data and Audit Plane
 
-`POST /chat` in `server/routes/ai.ts` acts as the orchestrator.
+- Durable stores for:
+  - uploaded table metadata/content references
+  - pending operations
+  - execution results
+  - immutable audit events
+- Full traceability from prompt to outcome.
 
-### Branch A: Explicit file summary intent
+### F) Observability and Reliability Plane
 
-If prompt matches file-summary patterns (`wantsFileSummary`), returns summary from uploaded sheet:
+- Structured logging, metrics, traces, and stage-level error taxonomy.
+- Alerting for model failures, validation failures, execution anomalies, and approval delays.
 
-- status: `file_summary`
-- includes row count, headers, sample rows, and human summary text
+## 4) Architectural Contracts
 
-### Branch B: Greeting/small talk
+- All external AI outputs must pass schema validation (Zod/JSON schema) before use.
+- Contracts must be versioned (`schemaVersion`, `policyVersion`, `modelRouteVersion`).
+- Request-to-response trace ID is mandatory for every API call.
+- Critical operations must be replayable with deterministic outcomes.
 
-If prompt is greeting/small talk (`isGreetingOrSmallTalk`), it forces normal conversational mode:
+## 5) Security and Compliance Baseline
 
-- status: `chat`
-- message: conversational model output
+- JWT-based authentication on protected APIs.
+- Role-based authorization for read, propose, review, execute, and export actions.
+- Least-privilege access between services.
+- Encryption in transit and at rest.
+- Tamper-evident audit storage and regulated retention/export support.
 
-### Branch C: Non-operational prompt
+## 6) What Is Already Strong
 
-If prompt does **not** match operational plan intent (`wantsOperationalPlan`):
+- Correct separation between AI planning and human approval.
+- Model routing abstraction already present.
+- Formula validation and audit write path already implemented.
+- Good initial domain framing around Kenyan regulator contexts.
 
-- If file context exists: tries contextual file Q&A (`answerFileQuestionWithModel`)
-- Otherwise: uses generic conversational path (`answerConversationally`)
+## 7) Key Production Gaps
 
-Returns typically:
-
-- `chat`
-- `file_answer`
-- `file_summary`
-
-### Branch D: Operational prompt
-
-If prompt looks like action request (formula/apply/calculate/update/etc.), route to planning pipeline:
-
-- `runPlanningPipeline(...)`
-- expected response on success: `pending_review` + pending operations list
-
-Fallback behavior:
-
-- If pipeline returns `clarification_required` and file context exists, it attempts contextual file answer first, then falls back to file summary.
-
-## 6) Uploaded File Context Lifecycle
-
-### Upload ingest
-
-`server/routes/files.ts`:
-
-- `POST /api/files/upload` accepts multipart `files`
-- parses CSV/XLS/XLSX
-- stores parsed sheet data in memory via `setUploadedFileSheets(...)`
-
-### Shared in-memory store
-
-`server/data/uploadStore.ts`:
-
-- global in-process map of `fileName -> sheets -> rows/headers`
-- APIs:
-  - `setUploadedFileSheets(...)`
-  - `getUploadedSheet(...)`
-  - `getUploadedFileSheetNames(...)`
-
-### Preview pagination
-
-`GET /api/files/upload/preview` returns paged row slices from store.
-
-Important: this store is **memory-only**; restart clears cache.
-
-## 7) Model Routing Layer
-
-### Catalog
-
-`server/model-router/catalog.ts` defines provider and model candidates:
-
-- Providers: `ollama`, `groq`, `openrouter`, `claude`
-- Availability of external providers depends on env keys.
-- Default ollama stack:
-  - primary: `env.ollamaModel`
-  - fallback: `env.ollamaFallbackModel`
-  - fast: `env.ollamaFastModel`
-
-### Deterministic route selection
-
-`server/model-router/router.ts`:
-
-- filters ineligible candidates (provider health, availability, context window, JSON/tool requirements)
-- scores by:
-  - quality (40%)
-  - latency (20%)
-  - cost (20%)
-  - task capability (20%)
-- deterministic tie-breaking and fallback selection
-- emits execution policy (timeout/retry)
-
-### Invocation client
-
-`server/lib/modelRouterClient.ts`:
-
-- dispatches to provider-specific clients
-- currently expects JSON outputs via `askRoutedJson<T>()`
-- ollama calls:
-  - `POST {OLLAMA_BASE_URL}/api/generate`
-  - `Authorization: Bearer OLLAMA_API_KEY` when present
-  - `format: "json"`
-
-If primary fails, uses route fallback model/provider.
-
-## 8) Planning / Operations Pipeline
-
-`server/pipeline/runAiPipeline.ts`:
-
-1. `classifyIntent(...)`
-2. confidence gate (`< 0.8` -> `clarification_required`)
-3. `buildFinancialPlan(...)`
-4. validates formula actions
-5. creates pending formula operations
-6. returns `pending_review`
-
-Related modules:
-
-- `server/agents/intentClassifier.ts` (LLM classification with fallback heuristic)
-- `server/agents/financialPlanner.ts` (LLM plan generation with deterministic fallback)
-- `server/engine/pendingOps.ts` (Supabase or in-memory pending ops store)
-
-## 9) Operation Review and Execution
-
-`/api/spreadsheet/*` endpoints handle lifecycle:
-
-- list pending
-- accept operation -> apply formula execution -> append audit log
-- reject operation
-
-This keeps “AI suggests / human approves” behavior explicit.
-
-## 10) Response Types You Can See
-
-Typical `POST /api/ai/chat` statuses:
-
-- `chat` - normal conversational response
-- `file_answer` - contextual answer from file data
-- `file_summary` - file overview (rows/headers/sample)
-- `pending_review` - operation proposals awaiting approval
-- `clarification_required` - low-confidence planning intent
-- `validation_error` - invalid generated formula
-
-Frontend should render these as user-friendly messages (not raw status where possible).
-
-## 11) Environment Dependencies
-
-Key env vars used by AI backend:
-
-- `PORT`
-- `JWT_SECRET`
-- `OLLAMA_BASE_URL`
-- `OLLAMA_API_KEY`
-- `OLLAMA_MODEL`
-- `OLLAMA_FALLBACK_MODEL`
-- `OLLAMA_FAST_MODEL`
-- `GROQ_API_KEY`
-- `OPENROUTER_API_KEY`
-- `OPENROUTER_BASE_URL`
-- `ANTHROPIC_API_KEY` (+ Claude model vars)
-
-Provider availability logs are printed at startup.
-
-## 12) Known Operational Characteristics
-
-- Uploaded file context is in-memory and lost on backend restart.
-- Model calls currently enforce JSON-style outputs in routed client path.
-- Conversational quality is tied to route selection and provider/model availability.
-- If model output cannot be parsed as expected JSON, fallback messages may appear.
-
-## 13) Suggested Next Improvements
-
-1. Persist upload context beyond process memory (DB/object store).
-2. Separate plain-text chat transport from strict-JSON structured tasks.
-3. Add request/response tracing IDs for easier debugging.
-4. Add explicit mode flags in request (`chat`, `analyze_file`, `plan_actions`) instead of regex-only intent gating.
-5. Add integration tests for:
-   - greeting
-   - file summary
-   - file Q&A
-   - operational planning
-   - clarification fallback
+- Remaining in-memory fallback stores should be removed or restricted to development mode.
+- Policy engine is not yet first-class (rules are still partly embedded in code/prompt logic).
+- Orchestration does not yet expose explicit workflow state machine with retries and compensation.
+- Observability needs standardized metrics/traces at each stage.
+- End-to-end regression and adversarial evaluation suites are still limited.
+
+## 8) Priority Architecture Roadmap
+
+1. Introduce policy engine and config/versioned regulatory rules store.
+2. Add orchestrator state machine persistence and idempotency controls.
+3. Replace development-memory stores with durable production data services.
+4. Add complete observability contract and dashboards.
+5. Add evaluation harness and release gate for model/prompt/policy changes.
 

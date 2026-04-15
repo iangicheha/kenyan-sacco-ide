@@ -10,6 +10,8 @@
     "router:debug": "node scripts/router-debug.mjs",
     "build": "vite build",
     "check": "tsc --noEmit",
+    "test": "pnpm test:server",
+    "test:server": "vitest run --config vitest.server.config.ts",
     "format": "prettier --write ."
   },
   "dependencies": {

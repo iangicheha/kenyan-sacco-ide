@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { env } from "../config/env.js";
 import { getSupabase } from "../lib/supabase.js";
 import type { PendingOperation } from "../types.js";
 
@@ -44,9 +45,15 @@ export async function createPendingFormulaOperation(input: {
       created_at: operation.createdAt,
     });
     if (error) {
+      if (!env.allowInMemoryFallback) {
+        throw new Error("Failed to persist pending operation and in-memory fallback is disabled.");
+      }
       pendingOpsStore.push(operation);
     }
   } else {
+    if (!env.allowInMemoryFallback) {
+      throw new Error("Supabase is unavailable and in-memory fallback is disabled.");
+    }
     pendingOpsStore.push(operation);
   }
   return operation;
@@ -80,6 +87,7 @@ export async function listPendingOperations(sessionId: string): Promise<PendingO
     }
   }
 
+  if (!env.allowInMemoryFallback) return [];
   return pendingOpsStore.filter((op) => op.sessionId === sessionId && op.status === "pending");
 }
 
@@ -112,6 +120,7 @@ export async function markOperationAccepted(operationId: string): Promise<Pendin
     }
   }
 
+  if (!env.allowInMemoryFallback) return null;
   const op = pendingOpsStore.find((item) => item.id === operationId);
   if (!op) return null;
   op.status = "accepted";
@@ -147,6 +156,7 @@ export async function markOperationRejected(operationId: string): Promise<Pendin
     }
   }
 
+  if (!env.allowInMemoryFallback) return null;
   const op = pendingOpsStore.find((item) => item.id === operationId);
   if (!op) return null;
   op.status = "rejected";

@@ -1,7 +1,24 @@
 import { askRoutedJson } from "../lib/modelRouterClient.js";
 import { buildRoutingInput } from "../model-router/catalog.js";
 import { selectModelRoute } from "../model-router/router.js";
+import { z } from "zod";
 import type { IntentResult, Regulator } from "../types.js";
+
+const intentSchema = z.object({
+  intent: z.enum([
+    "calculate_provisioning",
+    "classify_loans",
+    "generate_report",
+    "analyze_portfolio",
+    "validate_data",
+    "compute_ratios",
+    "forecast",
+    "unknown",
+  ]),
+  scope: z.enum(["single_cell", "column_range", "sheet_range", "unknown"]),
+  regulation: z.enum(["CBK", "SASRA", "IRA", "RBA", "CMA"]),
+  confidence: z.number().min(0).max(1),
+});
 
 export async function classifyIntent(input: string, fallbackRegulator: Regulator): Promise<IntentResult> {
   const route = selectModelRoute(
@@ -15,16 +32,26 @@ export async function classifyIntent(input: string, fallbackRegulator: Regulator
 
   const llmResult = await askRoutedJson<IntentResult>({
     route,
-    system:
-      "You are a financial spreadsheet intent classifier. Return only strict JSON with keys: intent, scope, regulation, confidence.",
-    user: `Classify this user request: "${input}". Use regulation "${fallbackRegulator}" when uncertain.`,
+    system: `You are a Meridian Financial AI intent classifier for Kenyan SACCOs and financial institutions.
+
+Analyze the user's request and classify it into a structured intent.
+
+Return strict JSON with these keys:
+- "intent": one of ["calculate_provisioning", "classify_loans", "generate_report", "analyze_portfolio", "validate_data", "compute_ratios", "forecast", "unknown"]
+- "scope": one of ["single_cell", "column_range", "sheet_range", "unknown"]
+- "regulation": "CBK" | "SASRA" | "IRA" | "RBA" | "CMA"
+- "confidence": number 0.0 to 1.0
+
+Use SASRA/CBK guidelines for Kenyan SACCOs. When uncertain, use the provided fallbackRegulator.`,
+    user: `Classify this request: "${input}". Use regulation "${fallbackRegulator}" when uncertain.`,
   });
-  if (llmResult?.intent && typeof llmResult.confidence === "number") {
+  const parsed = intentSchema.safeParse(llmResult);
+  if (parsed.success) {
     return {
-      intent: llmResult.intent,
-      scope: llmResult.scope ?? "unknown",
-      regulation: llmResult.regulation ?? fallbackRegulator,
-      confidence: llmResult.confidence,
+      intent: parsed.data.intent,
+      scope: parsed.data.scope,
+      regulation: parsed.data.regulation,
+      confidence: parsed.data.confidence,
     };
   }
 

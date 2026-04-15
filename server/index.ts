@@ -1,7 +1,7 @@
 import cors from "cors";
 import express from "express";
 import { env, hasClaude, hasGroq, hasOpenRouter, hasSupabase } from "./config/env.js";
-import { requireAuth } from "./middleware/auth.js";
+import { requireAuth, requireRoles } from "./middleware/auth.js";
 import { adminRouter } from "./routes/admin.js";
 import { aiRouter } from "./routes/ai.js";
 import { alertsRouter } from "./routes/alerts.js";
@@ -26,12 +26,12 @@ app.use("/api/ai", requireAuth, aiRouter);
 app.use("/api/spreadsheet", requireAuth, spreadsheetRouter);
 app.use("/api/files", filesRouter);
 app.use("/api", filesRouter);
-app.use("/api/reports", reportsRouter);
+app.use("/api/reports", requireAuth, requireRoles(["analyst", "reviewer", "admin"]), reportsRouter);
 app.use("/api/auth", authRouter);
-app.use("/api/admin", adminRouter);
-app.use("/api/router", routerRouter);
-app.use("/api/realtime", realtimeRouter);
-app.use("/api/alerts", alertsRouter);
+app.use("/api/admin", requireAuth, requireRoles(["admin"]), adminRouter);
+app.use("/api/router", requireAuth, requireRoles(["admin"]), routerRouter);
+app.use("/api/realtime", requireAuth, requireRoles(["analyst", "reviewer", "admin"]), realtimeRouter);
+app.use("/api/alerts", requireAuth, requireRoles(["analyst", "reviewer", "admin"]), alertsRouter);
 
 const server = app.listen(port, () => {
   // eslint-disable-next-line no-console

@@ -3,7 +3,19 @@
     "allow": [
       "mcp__ide__getDiagnostics",
       "Bash(git checkout:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "WebSearch",
+      "Bash(curl -s http://localhost:3001/api/health)",
+      "Bash(curl -s http://localhost:3001/api/files/upload/preview)",
+      "Bash(dir:*)",
+      "Bash(pnpm token:generate -- --role admin --sub test-user)",
+      "Bash(node -e \"const jwt = require\\('jsonwebtoken'\\); console.log\\(jwt.sign\\({sub:'test-user',role:'admin'}, process.env.JWT_SECRET || 'dev-secret', {expiresIn:'1d'}\\)\\);\")",
+      "Bash(node -e \"const jwt = require\\('jsonwebtoken'\\); console.log\\(jwt.sign\\({sub:'test-user',role:'admin'}, 'dev-secret', {expiresIn:'1d'}\\)\\);\")",
+      "Bash(curl -s -X POST http://localhost:3001/api/ai/chat -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3NzYyNTY3MTgsImV4cCI6MTc3NjM0MzExOH0.qJ1k8iWm-F-AHyEzfxTCmL6NmBQJ0' -H 'Content-Type: application/json' -d '{\"sessionId\":\"test-session-123\",\"prompt\":\"What is inside the M-Pesa CSV file? Show me the columns and a summary.\",\"fileName\":\"mpesa.csv\",\"regulator\":\"CBK\"}')",
+      "Bash(curl:*)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \"3001\\\\|5173\")",
+      "Bash(ls *.md)"
     ]
   }
 }

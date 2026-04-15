@@ -1,7 +1,12 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
 import { getAuditLog } from "../engine/auditLogger.js";
+import { getIdempotentResponse, saveIdempotentResponse } from "../engine/idempotencyStore.js";
+import { getOrchestratorStageMetrics, listOrchestratorEvents } from "../engine/orchestratorTelemetry.js";
 import { listPendingOperations } from "../engine/pendingOps.js";
+import { getRequestContext } from "../engine/requestContext.js";
+import { listWorkflowTransitions } from "../engine/workflowState.js";
+import { userHasAnyRole, type AuthenticatedRequest } from "../middleware/auth.js";
 import { acceptOperation, rejectOperation } from "../pipeline/runAiPipeline.js";
 
 const acceptSchema = z.object({
@@ -14,7 +19,23 @@ const acceptSchema = z.object({
 
 export const spreadsheetRouter = Router();
 
+function requireSpreadsheetRoles(
+  req: AuthenticatedRequest,
+  res: Response,
+  allowedRoles: Array<"read-only" | "analyst" | "reviewer" | "admin">,
+  correlationId?: string
+): boolean {
+  if (userHasAnyRole(req, allowedRoles)) return true;
+  res.status(403).json({
+    error: `Forbidden. Required role: ${allowedRoles.join(" or ")}.`,
+    ...(correlationId ? { correlationId } : {}),
+  });
+  return false;
+}
+
 spreadsheetRouter.get("/pending/:sessionId", async (req, res) => {
+  const request = req as AuthenticatedRequest;
+  if (!requireSpreadsheetRoles(request, res, ["analyst", "reviewer", "admin"])) return;
   const pendingOperations = await listPendingOperations(req.params.sessionId);
   return res.json({
     pendingOperations,
@@ -22,39 +43,135 @@ spreadsheetRouter.get("/pending/:sessionId", async (req, res) => {
 });
 
 spreadsheetRouter.post("/accept", async (req, res) => {
+  const context = getRequestContext(req);
+  res.setHeader("x-correlation-id", context.correlationId);
+  const request = req as AuthenticatedRequest;
+  if (!userHasAnyRole(request, ["reviewer", "admin"])) {
+    return res.status(403).json({
+      error: "Forbidden. Reviewer or admin role required.",
+      correlationId: context.correlationId,
+    });
+  }
   const parsed = acceptSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
       error: "Invalid accept payload.",
+      correlationId: context.correlationId,
       details: parsed.error.flatten(),
     });
   }
 
-  const result = await acceptOperation(parsed.data);
+  if (context.idempotencyKey) {
+    const cached = await getIdempotentResponse("spreadsheet.accept", context.idempotencyKey);
+    if (cached) {
+      return res.status(cached.statusCode).json(cached.body);
+    }
+  }
+
+  const result = await acceptOperation({
+    operationId: parsed.data.operationId,
+    analyst: parsed.data.analyst,
+    sheetData: parsed.data.sheetData,
+    correlationId: context.correlationId,
+  });
   if (result.status === "not_found") {
-    return res.status(404).json(result);
+    const body = { ...result, correlationId: context.correlationId };
+    if (context.idempotencyKey) {
+      await saveIdempotentResponse("spreadsheet.accept", context.idempotencyKey, { statusCode: 404, body });
+    }
+    return res.status(404).json(body);
   }
   if (result.status === "invalid_operation") {
-    return res.status(400).json(result);
+    const body = { ...result, correlationId: context.correlationId };
+    if (context.idempotencyKey) {
+      await saveIdempotentResponse("spreadsheet.accept", context.idempotencyKey, { statusCode: 400, body });
+    }
+    return res.status(400).json(body);
   }
-  return res.json(result);
+  const body = {
+    ...result,
+    correlationId: context.correlationId,
+    reviewer: request.user?.email ?? parsed.data.analyst,
+  };
+  if (context.idempotencyKey) {
+    await saveIdempotentResponse("spreadsheet.accept", context.idempotencyKey, { statusCode: 200, body });
+  }
+  return res.json(body);
 });
 
 spreadsheetRouter.post("/reject", async (req, res) => {
+  const context = getRequestContext(req);
+  res.setHeader("x-correlation-id", context.correlationId);
+  const request = req as AuthenticatedRequest;
+  if (!userHasAnyRole(request, ["reviewer", "admin"])) {
+    return res.status(403).json({
+      error: "Forbidden. Reviewer or admin role required.",
+      correlationId: context.correlationId,
+    });
+  }
   const parsed = z.object({ operationId: z.string().min(1) }).safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
       error: "Invalid reject payload.",
+      correlationId: context.correlationId,
       details: parsed.error.flatten(),
     });
   }
-  const result = await rejectOperation({ operationId: parsed.data.operationId });
-  if (result.status === "not_found") return res.status(404).json(result);
-  return res.json(result);
+
+  if (context.idempotencyKey) {
+    const cached = await getIdempotentResponse("spreadsheet.reject", context.idempotencyKey);
+    if (cached) {
+      return res.status(cached.statusCode).json(cached.body);
+    }
+  }
+
+  const result = await rejectOperation({
+    operationId: parsed.data.operationId,
+    actor: request.user?.email ?? "reviewer",
+    correlationId: context.correlationId,
+  });
+  if (result.status === "not_found") {
+    const body = { ...result, correlationId: context.correlationId };
+    if (context.idempotencyKey) {
+      await saveIdempotentResponse("spreadsheet.reject", context.idempotencyKey, { statusCode: 404, body });
+    }
+    return res.status(404).json(body);
+  }
+  const body = { ...result, correlationId: context.correlationId };
+  if (context.idempotencyKey) {
+    await saveIdempotentResponse("spreadsheet.reject", context.idempotencyKey, { statusCode: 200, body });
+  }
+  return res.json(body);
 });
 
 spreadsheetRouter.get("/audit/:sessionId", async (req, res) => {
+  const request = req as AuthenticatedRequest;
+  if (!requireSpreadsheetRoles(request, res, ["reviewer", "admin"])) return;
   return res.json({
     audit: await getAuditLog(req.params.sessionId),
+  });
+});
+
+spreadsheetRouter.get("/workflow/:sessionId", async (req, res) => {
+  const request = req as AuthenticatedRequest;
+  if (!requireSpreadsheetRoles(request, res, ["reviewer", "admin"])) return;
+  return res.json({
+    transitions: await listWorkflowTransitions(req.params.sessionId),
+  });
+});
+
+spreadsheetRouter.get("/events/:sessionId", async (req, res) => {
+  const request = req as AuthenticatedRequest;
+  if (!requireSpreadsheetRoles(request, res, ["reviewer", "admin"])) return;
+  return res.json({
+    events: await listOrchestratorEvents(req.params.sessionId),
+  });
+});
+
+spreadsheetRouter.get("/metrics/:sessionId", async (req, res) => {
+  const request = req as AuthenticatedRequest;
+  if (!requireSpreadsheetRoles(request, res, ["reviewer", "admin"])) return;
+  return res.json({
+    metrics: await getOrchestratorStageMetrics(req.params.sessionId),
   });
 });

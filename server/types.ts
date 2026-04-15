@@ -1,5 +1,14 @@
 export type InstitutionType = "bank" | "sacco" | "mfi";
 export type Regulator = "CBK" | "SASRA" | "IRA" | "RBA" | "CMA";
+export type IntentName =
+  | "calculate_provisioning"
+  | "classify_loans"
+  | "generate_report"
+  | "analyze_portfolio"
+  | "validate_data"
+  | "compute_ratios"
+  | "forecast"
+  | "unknown";
 
 export interface SheetColumn {
   name: string;
@@ -20,7 +29,7 @@ export interface SessionContext {
 }
 
 export interface IntentResult {
-  intent: string;
+  intent: IntentName;
   scope: "single_cell" | "column_range" | "sheet_range" | "unknown";
   regulation: Regulator;
   confidence: number;
@@ -70,4 +79,5 @@ export interface AuditLogEntry {
   analyst: string;
   timestamp: string;
   aiReasoning: string;
+  correlationId?: string;
 }

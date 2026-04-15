@@ -25,11 +25,13 @@ vi.mock("../agents/financialPlanner.js", () => {
 
 describe("runAiPipeline operational lifecycle", () => {
   it("queues and accepts operation with workflow/audit/events", async () => {
-    const sessionId = `session-${randomUUID()}`;
+    const tenantId = "tenant-a";
+    const sessionId = `${tenantId}:session-${randomUUID()}`;
     const correlationId = `corr-${randomUUID()}`;
     const actor = "reviewer@test.local";
 
     const planned = await runPlanningPipeline({
+      tenantId,
       sessionId,
       analystPrompt: "calculate provisioning and write formula",
       regulator: "CBK",
@@ -53,6 +55,7 @@ describe("runAiPipeline operational lifecycle", () => {
     expect(operationId).toBeTruthy();
 
     const applied = await acceptOperation({
+      tenantId,
       operationId: operationId!,
       analyst: actor,
       correlationId,
@@ -60,29 +63,31 @@ describe("runAiPipeline operational lifecycle", () => {
     });
     expect(applied.status).toBe("applied");
 
-    const pending = await listPendingOperations(sessionId);
+    const pending = await listPendingOperations(sessionId, tenantId);
     expect(pending.find((item) => item.id === operationId)).toBeUndefined();
 
-    const auditEntries = await getAuditLog(sessionId);
+    const auditEntries = await getAuditLog(sessionId, tenantId);
     expect(auditEntries.length).toBeGreaterThan(0);
     expect(auditEntries[0]?.correlationId).toBe(correlationId);
 
-    const transitions = await listWorkflowTransitions(sessionId);
+    const transitions = await listWorkflowTransitions(sessionId, tenantId);
     expect(transitions.some((item) => item.toState === "pending_review")).toBe(true);
     expect(transitions.some((item) => item.toState === "accepted")).toBe(true);
     expect(transitions.some((item) => item.toState === "executed")).toBe(true);
 
-    const events = await listOrchestratorEvents(sessionId);
+    const events = await listOrchestratorEvents(sessionId, tenantId);
     expect(events.some((item) => item.stage === "queue_review")).toBe(true);
     expect(events.some((item) => item.stage === "accept_operation" && item.status === "ok")).toBe(true);
   });
 
   it("queues and rejects operation with rejection transition", async () => {
-    const sessionId = `session-${randomUUID()}`;
+    const tenantId = "tenant-a";
+    const sessionId = `${tenantId}:session-${randomUUID()}`;
     const correlationId = `corr-${randomUUID()}`;
     const actor = "reviewer@test.local";
 
     const planned = await runPlanningPipeline({
+      tenantId,
       sessionId,
       analystPrompt: "generate report and write formula",
       regulator: "SASRA",
@@ -105,13 +110,14 @@ describe("runAiPipeline operational lifecycle", () => {
     expect(operationId).toBeTruthy();
 
     const rejected = await rejectOperation({
+      tenantId,
       operationId: operationId!,
       actor,
       correlationId,
     });
     expect(rejected.status).toBe("rejected");
 
-    const transitions = await listWorkflowTransitions(sessionId);
+    const transitions = await listWorkflowTransitions(sessionId, tenantId);
     expect(transitions.some((item) => item.toState === "rejected")).toBe(true);
   });
 });

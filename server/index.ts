@@ -15,7 +15,20 @@ import { spreadsheetRouter } from "./routes/spreadsheet.js";
 const app = express();
 const port = env.port;
 
-app.use(cors());
+const localhostOrigins = ["http://localhost:3000", "http://localhost:4100", "http://127.0.0.1:3000", "http://127.0.0.1:4100"];
+const configuredOrigins = env.nodeEnv === "production" ? env.allowedOrigins : [...localhostOrigins, ...env.allowedOrigins];
+const allowedOrigins = new Set(configuredOrigins);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.has(origin)) return callback(null, true);
+      return callback(new Error("Origin not allowed by CORS policy."));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req, res) => {
@@ -24,8 +37,8 @@ app.get("/health", (_req, res) => {
 
 app.use("/api/ai", requireAuth, aiRouter);
 app.use("/api/spreadsheet", requireAuth, spreadsheetRouter);
-app.use("/api/files", filesRouter);
-app.use("/api", filesRouter);
+app.use("/api/files", requireAuth, filesRouter);
+app.use("/api", requireAuth, filesRouter);
 app.use("/api/reports", requireAuth, requireRoles(["analyst", "reviewer", "admin"]), reportsRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/admin", requireAuth, requireRoles(["admin"]), adminRouter);

@@ -2,6 +2,7 @@ import { env } from "../config/env.js";
 import { getSupabase } from "../lib/supabase.js";
 
 export interface OrchestratorEvent {
+  tenantId: string;
   correlationId: string;
   sessionId: string;
   stage: string;
@@ -22,6 +23,7 @@ export async function emitOrchestratorEvent(event: Omit<OrchestratorEvent, "crea
   const supabase = getSupabase();
   if (supabase) {
     const { error } = await supabase.from("orchestrator_events").insert({
+      tenant_id: record.tenantId,
       correlation_id: record.correlationId,
       session_id: record.sessionId,
       stage: record.stage,
@@ -39,18 +41,20 @@ export async function emitOrchestratorEvent(event: Omit<OrchestratorEvent, "crea
   eventsStore.push(record);
 }
 
-export async function listOrchestratorEvents(sessionId: string): Promise<OrchestratorEvent[]> {
+export async function listOrchestratorEvents(sessionId: string, tenantId: string): Promise<OrchestratorEvent[]> {
   const supabase = getSupabase();
   if (supabase) {
     const { data, error } = await supabase
       .from("orchestrator_events")
       .select("*")
+      .eq("tenant_id", tenantId)
       .eq("session_id", sessionId)
       .order("created_at", { ascending: false })
       .limit(500);
 
     if (!error && data) {
       return data.map((row) => ({
+        tenantId: row.tenant_id,
         correlationId: row.correlation_id,
         sessionId: row.session_id,
         stage: row.stage,
@@ -63,17 +67,17 @@ export async function listOrchestratorEvents(sessionId: string): Promise<Orchest
   }
 
   if (!env.allowInMemoryFallback) return [];
-  return eventsStore.filter((entry) => entry.sessionId === sessionId).slice().reverse();
+  return eventsStore.filter((entry) => entry.tenantId === tenantId && entry.sessionId === sessionId).slice().reverse();
 }
 
-export async function getOrchestratorStageMetrics(sessionId: string): Promise<{
+export async function getOrchestratorStageMetrics(sessionId: string, tenantId: string): Promise<{
   total: number;
   ok: number;
   failed: number;
   fallback: number;
   byStage: Record<string, { total: number; ok: number; failed: number; fallback: number }>;
 }> {
-  const events = await listOrchestratorEvents(sessionId);
+  const events = await listOrchestratorEvents(sessionId, tenantId);
   const metrics = {
     total: events.length,
     ok: 0,

@@ -9,6 +9,7 @@ export interface AuthenticatedRequest extends Request {
     email: string;
     institutionType: "bank" | "sacco" | "mfi";
     role: UserRole;
+    tenantId: string;
   };
 }
 
@@ -24,11 +25,13 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
       email: string;
       institutionType: "bank" | "sacco" | "mfi";
       role?: UserRole;
+      tenantId?: string;
     };
     req.user = {
       email: payload.email,
       institutionType: payload.institutionType,
       role: payload.role ?? "analyst",
+      tenantId: payload.tenantId ?? "default",
     };
     next();
   } catch {

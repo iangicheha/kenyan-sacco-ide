@@ -4,15 +4,17 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { requireAuth, requireRoles, type UserRole } from "../middleware/auth.js";
 import { adminRouter } from "./admin.js";
 import { reportsRouter } from "./reports.js";
+import { spreadsheetRouter } from "./spreadsheet.js";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "dev-secret-change-in-production";
 
-function createToken(role: UserRole): string {
+function createToken(role: UserRole, tenantId = "tenant-a"): string {
   return jwt.sign(
     {
       email: "tester@example.com",
       institutionType: "sacco",
       role,
+      tenantId,
     },
     JWT_SECRET,
     { expiresIn: "5m" }
@@ -28,6 +30,7 @@ describe("route auth integration", () => {
     app.use(express.json());
     app.use("/api/admin", requireAuth, requireRoles(["admin"]), adminRouter);
     app.use("/api/reports", requireAuth, requireRoles(["analyst", "reviewer", "admin"]), reportsRouter);
+    app.use("/api/spreadsheet", requireAuth, spreadsheetRouter);
 
     await new Promise<void>((resolve) => {
       const server = app.listen(0, "127.0.0.1", () => {
@@ -109,5 +112,18 @@ describe("route auth integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.status).toBe("ok");
+  });
+
+  it("returns 403 for cross-tenant session access on protected resource", async () => {
+    const token = createToken("analyst", "tenant-a");
+    const response = await fetch(`${baseUrl}/api/spreadsheet/pending/tenant-b:session-123`, {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+    const body = (await response.json()) as { error?: string };
+
+    expect(response.status).toBe(403);
+    expect(body.error).toContain("Cross-tenant");
   });
 });

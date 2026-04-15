@@ -2,6 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import { getUploadedSheet, setUploadedFileSheets, type SheetPreviewRow, type StoredSheet } from "../data/uploadStore.js";
+import { userHasAnyRole, type AuthenticatedRequest } from "../middleware/auth.js";
 
 export const filesRouter = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -65,6 +66,14 @@ function parseExcel(buffer: Buffer): Record<string, StoredSheet> {
 }
 
 filesRouter.post("/upload", upload.array("files"), (req, res) => {
+  const request = req as AuthenticatedRequest;
+  if (!request.user) {
+    return res.status(401).json({ error: "Unauthorized." });
+  }
+  if (!userHasAnyRole(request, ["analyst", "admin"])) {
+    return res.status(403).json({ error: "Forbidden. Analyst or admin role required for upload." });
+  }
+
   const files = ((req as any).files ?? []) as Array<{ originalname: string; buffer: Buffer }>;
   if (files.length === 0) {
     return res.status(400).json({ error: "No files uploaded" });
@@ -90,7 +99,7 @@ filesRouter.post("/upload", upload.array("files"), (req, res) => {
       };
     }
 
-    setUploadedFileSheets(file.originalname, sheetRecord);
+    setUploadedFileSheets(request.user.tenantId, file.originalname, sheetRecord);
 
     const sheetNames = Object.keys(sheetRecord);
     const defaultSheetName = sheetNames[0] ?? "Sheet1";
@@ -119,12 +128,20 @@ filesRouter.post("/upload", upload.array("files"), (req, res) => {
 });
 
 filesRouter.get("/upload/preview", (req, res) => {
+  const request = req as AuthenticatedRequest;
+  if (!request.user) {
+    return res.status(401).json({ error: "Unauthorized." });
+  }
+  if (!userHasAnyRole(request, ["read-only", "reviewer", "analyst", "admin"])) {
+    return res.status(403).json({ error: "Forbidden. Preview role not allowed." });
+  }
+
   const fileName = String(req.query.fileName ?? "");
   const sheetName = String(req.query.sheetName ?? "");
   const offset = Math.max(0, Number(req.query.offset ?? 0));
   const limit = Math.max(1, Number(req.query.limit ?? PREVIEW_PAGE_SIZE));
 
-  const sheet = getUploadedSheet(fileName, sheetName);
+  const sheet = getUploadedSheet(request.user.tenantId, fileName, sheetName);
   if (!sheet) {
     return res.status(404).json({ error: "Sheet not found in preview cache" });
   }

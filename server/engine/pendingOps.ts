@@ -6,6 +6,7 @@ import type { PendingOperation } from "../types.js";
 const pendingOpsStore: PendingOperation[] = [];
 
 export async function createPendingFormulaOperation(input: {
+  tenantId: string;
   sessionId: string;
   cellRef: string;
   formula: string;
@@ -15,6 +16,7 @@ export async function createPendingFormulaOperation(input: {
 }): Promise<PendingOperation> {
   const operation: PendingOperation = {
     id: randomUUID(),
+    tenantId: input.tenantId,
     sessionId: input.sessionId,
     cellRef: input.cellRef,
     kind: "formula",
@@ -32,6 +34,7 @@ export async function createPendingFormulaOperation(input: {
   if (supabase) {
     const { error } = await supabase.from("pending_operations").insert({
       id: operation.id,
+      tenant_id: operation.tenantId,
       session_id: operation.sessionId,
       cell_ref: operation.cellRef,
       kind: operation.kind,
@@ -59,18 +62,20 @@ export async function createPendingFormulaOperation(input: {
   return operation;
 }
 
-export async function listPendingOperations(sessionId: string): Promise<PendingOperation[]> {
+export async function listPendingOperations(sessionId: string, tenantId: string): Promise<PendingOperation[]> {
   const supabase = getSupabase();
   if (supabase) {
     const { data, error } = await supabase
       .from("pending_operations")
       .select("*")
+      .eq("tenant_id", tenantId)
       .eq("session_id", sessionId)
       .eq("status", "pending");
 
     if (!error && data) {
       return data.map((row) => ({
         id: row.id,
+        tenantId: row.tenant_id,
         sessionId: row.session_id,
         cellRef: row.cell_ref,
         kind: row.kind,
@@ -88,15 +93,16 @@ export async function listPendingOperations(sessionId: string): Promise<PendingO
   }
 
   if (!env.allowInMemoryFallback) return [];
-  return pendingOpsStore.filter((op) => op.sessionId === sessionId && op.status === "pending");
+  return pendingOpsStore.filter((op) => op.tenantId === tenantId && op.sessionId === sessionId && op.status === "pending");
 }
 
-export async function markOperationAccepted(operationId: string): Promise<PendingOperation | null> {
+export async function markOperationAccepted(operationId: string, tenantId: string): Promise<PendingOperation | null> {
   const supabase = getSupabase();
   if (supabase) {
     const { data, error } = await supabase
       .from("pending_operations")
       .update({ status: "accepted" })
+      .eq("tenant_id", tenantId)
       .eq("id", operationId)
       .select("*")
       .single();
@@ -104,6 +110,7 @@ export async function markOperationAccepted(operationId: string): Promise<Pendin
     if (!error && data) {
       return {
         id: data.id,
+        tenantId: data.tenant_id,
         sessionId: data.session_id,
         cellRef: data.cell_ref,
         kind: data.kind,
@@ -121,18 +128,19 @@ export async function markOperationAccepted(operationId: string): Promise<Pendin
   }
 
   if (!env.allowInMemoryFallback) return null;
-  const op = pendingOpsStore.find((item) => item.id === operationId);
+  const op = pendingOpsStore.find((item) => item.id === operationId && item.tenantId === tenantId);
   if (!op) return null;
   op.status = "accepted";
   return op;
 }
 
-export async function markOperationRejected(operationId: string): Promise<PendingOperation | null> {
+export async function markOperationRejected(operationId: string, tenantId: string): Promise<PendingOperation | null> {
   const supabase = getSupabase();
   if (supabase) {
     const { data, error } = await supabase
       .from("pending_operations")
       .update({ status: "rejected" })
+      .eq("tenant_id", tenantId)
       .eq("id", operationId)
       .select("*")
       .single();
@@ -140,6 +148,7 @@ export async function markOperationRejected(operationId: string): Promise<Pendin
     if (!error && data) {
       return {
         id: data.id,
+        tenantId: data.tenant_id,
         sessionId: data.session_id,
         cellRef: data.cell_ref,
         kind: data.kind,
@@ -157,7 +166,7 @@ export async function markOperationRejected(operationId: string): Promise<Pendin
   }
 
   if (!env.allowInMemoryFallback) return null;
-  const op = pendingOpsStore.find((item) => item.id === operationId);
+  const op = pendingOpsStore.find((item) => item.id === operationId && item.tenantId === tenantId);
   if (!op) return null;
   op.status = "rejected";
   return op;

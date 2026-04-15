@@ -11,6 +11,7 @@ export type WorkflowState =
   | "closed";
 
 export interface WorkflowTransition {
+  tenantId: string;
   sessionId: string;
   operationId?: string;
   correlationId: string;
@@ -34,6 +35,7 @@ export async function appendWorkflowTransition(
   const supabase = getSupabase();
   if (supabase) {
     const { error } = await supabase.from("workflow_transitions").insert({
+      tenant_id: record.tenantId,
       session_id: record.sessionId,
       operation_id: record.operationId ?? null,
       correlation_id: record.correlationId,
@@ -53,18 +55,20 @@ export async function appendWorkflowTransition(
   return record;
 }
 
-export async function listWorkflowTransitions(sessionId: string): Promise<WorkflowTransition[]> {
+export async function listWorkflowTransitions(sessionId: string, tenantId: string): Promise<WorkflowTransition[]> {
   const supabase = getSupabase();
   if (supabase) {
     const { data, error } = await supabase
       .from("workflow_transitions")
       .select("*")
+      .eq("tenant_id", tenantId)
       .eq("session_id", sessionId)
       .order("timestamp", { ascending: false })
       .limit(500);
 
     if (!error && data) {
       return data.map((row) => ({
+        tenantId: row.tenant_id,
         sessionId: row.session_id,
         operationId: row.operation_id ?? undefined,
         correlationId: row.correlation_id,
@@ -78,5 +82,5 @@ export async function listWorkflowTransitions(sessionId: string): Promise<Workfl
   }
 
   if (!env.allowInMemoryFallback) return [];
-  return workflowStore.filter((item) => item.sessionId === sessionId).slice().reverse();
+  return workflowStore.filter((item) => item.tenantId === tenantId && item.sessionId === sessionId).slice().reverse();
 }

@@ -56,6 +56,7 @@ export interface FormulaValidationResult {
 
 export interface PendingOperation {
   id: string;
+  tenantId: string;
   sessionId: string;
   cellRef: string;
   kind: "formula" | "value";
@@ -71,6 +72,7 @@ export interface PendingOperation {
 }
 
 export interface AuditLogEntry {
+  tenantId: string;
   operationId: string;
   sessionId: string;
   cellRef: string;

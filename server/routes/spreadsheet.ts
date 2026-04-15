@@ -5,6 +5,7 @@ import { getIdempotentResponse, saveIdempotentResponse } from "../engine/idempot
 import { getOrchestratorStageMetrics, listOrchestratorEvents } from "../engine/orchestratorTelemetry.js";
 import { listPendingOperations } from "../engine/pendingOps.js";
 import { getRequestContext } from "../engine/requestContext.js";
+import { assertTenantAccess } from "../engine/tenantAccess.js";
 import { listWorkflowTransitions } from "../engine/workflowState.js";
 import { userHasAnyRole, type AuthenticatedRequest } from "../middleware/auth.js";
 import { acceptOperation, rejectOperation } from "../pipeline/runAiPipeline.js";
@@ -18,6 +19,11 @@ const acceptSchema = z.object({
 });
 
 export const spreadsheetRouter = Router();
+
+function assertSessionTenantOrThrow(sessionId: string, tenantId: string): void {
+  const sessionTenantId = sessionId.split(":")[0] ?? "";
+  assertTenantAccess(sessionTenantId, tenantId);
+}
 
 function requireSpreadsheetRoles(
   req: AuthenticatedRequest,
@@ -36,7 +42,12 @@ function requireSpreadsheetRoles(
 spreadsheetRouter.get("/pending/:sessionId", async (req, res) => {
   const request = req as AuthenticatedRequest;
   if (!requireSpreadsheetRoles(request, res, ["analyst", "reviewer", "admin"])) return;
-  const pendingOperations = await listPendingOperations(req.params.sessionId);
+  try {
+    assertSessionTenantOrThrow(req.params.sessionId, request.user?.tenantId ?? "");
+  } catch {
+    return res.status(403).json({ error: "Forbidden. Cross-tenant session access denied." });
+  }
+  const pendingOperations = await listPendingOperations(req.params.sessionId, request.user?.tenantId ?? "default");
   return res.json({
     pendingOperations,
   });
@@ -69,6 +80,7 @@ spreadsheetRouter.post("/accept", async (req, res) => {
   }
 
   const result = await acceptOperation({
+    tenantId: request.user?.tenantId ?? "default",
     operationId: parsed.data.operationId,
     analyst: parsed.data.analyst,
     sheetData: parsed.data.sheetData,
@@ -126,6 +138,7 @@ spreadsheetRouter.post("/reject", async (req, res) => {
   }
 
   const result = await rejectOperation({
+    tenantId: request.user?.tenantId ?? "default",
     operationId: parsed.data.operationId,
     actor: request.user?.email ?? "reviewer",
     correlationId: context.correlationId,
@@ -147,31 +160,51 @@ spreadsheetRouter.post("/reject", async (req, res) => {
 spreadsheetRouter.get("/audit/:sessionId", async (req, res) => {
   const request = req as AuthenticatedRequest;
   if (!requireSpreadsheetRoles(request, res, ["reviewer", "admin"])) return;
+  try {
+    assertSessionTenantOrThrow(req.params.sessionId, request.user?.tenantId ?? "");
+  } catch {
+    return res.status(403).json({ error: "Forbidden. Cross-tenant session access denied." });
+  }
   return res.json({
-    audit: await getAuditLog(req.params.sessionId),
+    audit: await getAuditLog(req.params.sessionId, request.user?.tenantId ?? "default"),
   });
 });
 
 spreadsheetRouter.get("/workflow/:sessionId", async (req, res) => {
   const request = req as AuthenticatedRequest;
   if (!requireSpreadsheetRoles(request, res, ["reviewer", "admin"])) return;
+  try {
+    assertSessionTenantOrThrow(req.params.sessionId, request.user?.tenantId ?? "");
+  } catch {
+    return res.status(403).json({ error: "Forbidden. Cross-tenant session access denied." });
+  }
   return res.json({
-    transitions: await listWorkflowTransitions(req.params.sessionId),
+    transitions: await listWorkflowTransitions(req.params.sessionId, request.user?.tenantId ?? "default"),
   });
 });
 
 spreadsheetRouter.get("/events/:sessionId", async (req, res) => {
   const request = req as AuthenticatedRequest;
   if (!requireSpreadsheetRoles(request, res, ["reviewer", "admin"])) return;
+  try {
+    assertSessionTenantOrThrow(req.params.sessionId, request.user?.tenantId ?? "");
+  } catch {
+    return res.status(403).json({ error: "Forbidden. Cross-tenant session access denied." });
+  }
   return res.json({
-    events: await listOrchestratorEvents(req.params.sessionId),
+    events: await listOrchestratorEvents(req.params.sessionId, request.user?.tenantId ?? "default"),
   });
 });
 
 spreadsheetRouter.get("/metrics/:sessionId", async (req, res) => {
   const request = req as AuthenticatedRequest;
   if (!requireSpreadsheetRoles(request, res, ["reviewer", "admin"])) return;
+  try {
+    assertSessionTenantOrThrow(req.params.sessionId, request.user?.tenantId ?? "");
+  } catch {
+    return res.status(403).json({ error: "Forbidden. Cross-tenant session access denied." });
+  }
   return res.json({
-    metrics: await getOrchestratorStageMetrics(req.params.sessionId),
+    metrics: await getOrchestratorStageMetrics(req.params.sessionId, request.user?.tenantId ?? "default"),
   });
 });

@@ -7,14 +7,16 @@ type CleanupResult = {
   mode: "supabase" | "memory" | "none";
 };
 
-async function cleanupOrchestratorEvents(): Promise<CleanupResult> {
-  const retentionDays = Number(process.env.ORCHESTRATOR_RETENTION_DAYS ?? 30);
-  const thresholdIso = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+function getThresholdIso(retentionDays: number): string {
+  return new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+}
+
+async function cleanupTableByCreatedAt(table: string, thresholdIso: string): Promise<CleanupResult> {
   const supabase = getSupabase();
 
   if (supabase) {
     const { data, error } = await supabase
-      .from("orchestrator_events")
+      .from(table)
       .delete()
       .lt("created_at", thresholdIso)
       .select("id");
@@ -28,18 +30,24 @@ async function cleanupOrchestratorEvents(): Promise<CleanupResult> {
     return { deleted: 0, mode: "none" };
   }
 
-  // Orchestrator in-memory events are process-local only and reset on restart.
+  // In-memory stores are process-local only and reset on restart.
   return { deleted: 0, mode: "memory" };
 }
 
 async function main() {
   const idempotency = await cleanupExpiredIdempotencyRecords();
-  const orchestrator = await cleanupOrchestratorEvents();
+  const audit = await cleanupTableByCreatedAt("audit_log", getThresholdIso(env.retentionDaysAudit));
+  const telemetryEvents = await cleanupTableByCreatedAt("orchestrator_events", getThresholdIso(env.retentionDaysTelemetry));
+  const telemetryWorkflow = await cleanupTableByCreatedAt("workflow_transitions", getThresholdIso(env.retentionDaysTelemetry));
 
   const payload = {
     ranAt: new Date().toISOString(),
     idempotency,
-    orchestrator,
+    audit,
+    telemetry: {
+      orchestratorEvents: telemetryEvents,
+      workflowTransitions: telemetryWorkflow,
+    },
   };
 
   // eslint-disable-next-line no-console

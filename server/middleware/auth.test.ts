@@ -12,7 +12,7 @@ function createMockResponse() {
 describe("auth role guards", () => {
   it("detects role membership", () => {
     const req = {
-      user: { email: "analyst@test.com", institutionType: "sacco", role: "analyst" },
+      user: { email: "analyst@test.com", institutionType: "sacco", role: "analyst", tenantId: "tenant-a" },
     } as AuthenticatedRequest;
     expect(userHasAnyRole(req, ["admin"])).toBe(false);
     expect(userHasAnyRole(req, ["analyst", "reviewer"])).toBe(true);
@@ -21,7 +21,7 @@ describe("auth role guards", () => {
   it("blocks when user lacks required roles", () => {
     const middleware = requireRoles(["admin"]);
     const req = {
-      user: { email: "reviewer@test.com", institutionType: "bank", role: "reviewer" },
+      user: { email: "reviewer@test.com", institutionType: "bank", role: "reviewer", tenantId: "tenant-a" },
     } as AuthenticatedRequest;
     const res = createMockResponse();
     const next = vi.fn() as unknown as NextFunction;
@@ -35,7 +35,7 @@ describe("auth role guards", () => {
   it("allows when user has required role", () => {
     const middleware = requireRoles(["reviewer", "admin"]);
     const req = {
-      user: { email: "reviewer@test.com", institutionType: "bank", role: "reviewer" },
+      user: { email: "reviewer@test.com", institutionType: "bank", role: "reviewer", tenantId: "tenant-a" },
     } as AuthenticatedRequest;
     const res = createMockResponse();
     const next = vi.fn() as unknown as NextFunction;

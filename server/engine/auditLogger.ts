@@ -8,6 +8,7 @@ export async function appendAuditLog(entry: AuditLogEntry): Promise<void> {
   const supabase = getSupabase();
   if (supabase) {
     const { error } = await supabase.from("audit_log").insert({
+      tenant_id: entry.tenantId,
       operation_id: entry.operationId,
       session_id: entry.sessionId,
       cell_ref: entry.cellRef,
@@ -26,17 +27,19 @@ export async function appendAuditLog(entry: AuditLogEntry): Promise<void> {
   auditLogStore.push(entry);
 }
 
-export async function getAuditLog(sessionId: string): Promise<AuditLogEntry[]> {
+export async function getAuditLog(sessionId: string, tenantId: string): Promise<AuditLogEntry[]> {
   const supabase = getSupabase();
   if (supabase) {
     const { data, error } = await supabase
       .from("audit_log")
       .select("*")
+      .eq("tenant_id", tenantId)
       .eq("session_id", sessionId)
       .order("timestamp", { ascending: false })
       .limit(200);
     if (!error && data) {
       return data.map((row) => ({
+        tenantId: row.tenant_id,
         operationId: row.operation_id,
         sessionId: row.session_id,
         cellRef: row.cell_ref,
@@ -50,5 +53,5 @@ export async function getAuditLog(sessionId: string): Promise<AuditLogEntry[]> {
     }
   }
   if (!env.allowInMemoryFallback) return [];
-  return auditLogStore.filter((entry) => entry.sessionId === sessionId);
+  return auditLogStore.filter((entry) => entry.tenantId === tenantId && entry.sessionId === sessionId);
 }

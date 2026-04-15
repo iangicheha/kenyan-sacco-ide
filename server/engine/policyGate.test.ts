@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { evaluatePolicyGate } from "./policyGate.js";
 
 describe("evaluatePolicyGate", () => {
-  it("blocks unknown intent", () => {
-    const result = evaluatePolicyGate({
+  it("blocks unknown intent", async () => {
+    const result = await evaluatePolicyGate({
       regulator: "CBK",
       intent: {
         intent: "unknown",
@@ -17,8 +17,8 @@ describe("evaluatePolicyGate", () => {
     expect(result.requiresApproval).toBe(false);
   });
 
-  it("marks provisioning as high risk and requires approval", () => {
-    const result = evaluatePolicyGate({
+  it("marks provisioning as high risk and requires approval", async () => {
+    const result = await evaluatePolicyGate({
       regulator: "SASRA",
       intent: {
         intent: "calculate_provisioning",

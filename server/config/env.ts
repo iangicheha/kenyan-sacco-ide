@@ -19,6 +19,9 @@ export const env = {
   supabaseUrl: process.env.SUPABASE_URL ?? "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
   idempotencyTtlSeconds: Number(process.env.IDEMPOTENCY_TTL_SECONDS ?? 86400),
+  retentionDaysAudit: Number(process.env.RETENTION_DAYS_AUDIT ?? 365),
+  retentionDaysTelemetry: Number(process.env.RETENTION_DAYS_TELEMETRY ?? 90),
+  allowedOrigins: (process.env.ALLOWED_ORIGINS ?? "").split(",").map((item) => item.trim()).filter(Boolean),
   allowInMemoryFallback:
     (process.env.ALLOW_IN_MEMORY_FALLBACK ?? (process.env.NODE_ENV === "production" ? "false" : "true")) === "true",
 };

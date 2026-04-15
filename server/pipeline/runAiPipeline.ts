@@ -15,6 +15,7 @@ import { validateFormula } from "../tools/validateFormula.js";
 import type { Regulator } from "../types.js";
 
 export async function runPlanningPipeline(input: {
+  tenantId: string;
   sessionId: string;
   analystPrompt: string;
   regulator: Regulator;
@@ -25,6 +26,7 @@ export async function runPlanningPipeline(input: {
   const classifyStartedAt = Date.now();
   const intent = input.preclassifiedIntent ?? (await classifyIntent(input.analystPrompt, input.regulator));
   await emitOrchestratorEvent({
+    tenantId: input.tenantId,
     correlationId: input.correlationId,
     sessionId: input.sessionId,
     stage: "classify",
@@ -35,6 +37,7 @@ export async function runPlanningPipeline(input: {
 
   if (intent.confidence < 0.8) {
     await emitOrchestratorEvent({
+      tenantId: input.tenantId,
       correlationId: input.correlationId,
       sessionId: input.sessionId,
       stage: "classify_gate",
@@ -44,8 +47,9 @@ export async function runPlanningPipeline(input: {
     return { status: "clarification_required" as const, intent };
   }
 
-  const policyDecision = evaluatePolicyGate({ intent, regulator: input.regulator });
+  const policyDecision = await evaluatePolicyGate({ intent, regulator: input.regulator });
   await emitOrchestratorEvent({
+    tenantId: input.tenantId,
     correlationId: input.correlationId,
     sessionId: input.sessionId,
     stage: "policy_gate",
@@ -68,6 +72,7 @@ export async function runPlanningPipeline(input: {
   const planningStartedAt = Date.now();
   const plan = await buildFinancialPlan(intent);
   await emitOrchestratorEvent({
+    tenantId: input.tenantId,
     correlationId: input.correlationId,
     sessionId: input.sessionId,
     stage: "plan",
@@ -81,6 +86,7 @@ export async function runPlanningPipeline(input: {
     const validation = validateFormula(action.formula);
     if (!validation.isValid) {
       await emitOrchestratorEvent({
+        tenantId: input.tenantId,
         correlationId: input.correlationId,
         sessionId: input.sessionId,
         stage: "validate_formula",
@@ -95,6 +101,7 @@ export async function runPlanningPipeline(input: {
     }
 
     await createPendingFormulaOperation({
+      tenantId: input.tenantId,
       sessionId: input.sessionId,
       cellRef: action.target,
       formula: action.formula,
@@ -105,6 +112,7 @@ export async function runPlanningPipeline(input: {
   }
 
   await appendWorkflowTransition({
+    tenantId: input.tenantId,
     sessionId: input.sessionId,
     correlationId: input.correlationId,
     fromState: "draft",
@@ -113,6 +121,7 @@ export async function runPlanningPipeline(input: {
     reason: "Plan created and pending operations queued.",
   });
   await emitOrchestratorEvent({
+    tenantId: input.tenantId,
     correlationId: input.correlationId,
     sessionId: input.sessionId,
     stage: "queue_review",
@@ -123,20 +132,22 @@ export async function runPlanningPipeline(input: {
   return {
     status: "pending_review" as const,
     policyDecision,
-    pendingOperations: await listPendingOperations(input.sessionId),
+    pendingOperations: await listPendingOperations(input.sessionId, input.tenantId),
   };
 }
 
 export async function acceptOperation(input: {
+  tenantId: string;
   operationId: string;
   analyst: string;
   correlationId: string;
   sheetData?: Record<string, string | number | boolean | null>;
 }) {
   const startedAt = Date.now();
-  const op = await markOperationAccepted(input.operationId);
+  const op = await markOperationAccepted(input.operationId, input.tenantId);
   if (!op) {
     await emitOrchestratorEvent({
+      tenantId: input.tenantId,
       correlationId: input.correlationId,
       sessionId: "unknown",
       stage: "accept_operation",
@@ -147,6 +158,7 @@ export async function acceptOperation(input: {
   }
   if (!op.formula) {
     await emitOrchestratorEvent({
+      tenantId: input.tenantId,
       correlationId: input.correlationId,
       sessionId: op.sessionId,
       stage: "accept_operation",
@@ -157,6 +169,7 @@ export async function acceptOperation(input: {
   }
 
   await appendWorkflowTransition({
+    tenantId: input.tenantId,
     sessionId: op.sessionId,
     operationId: op.id,
     correlationId: input.correlationId,
@@ -168,6 +181,7 @@ export async function acceptOperation(input: {
 
   const values = executeFormulaRange({ formula: op.formula, cellRef: op.cellRef, sheetData: input.sheetData });
   await appendAuditLog({
+    tenantId: input.tenantId,
     operationId: op.id,
     sessionId: op.sessionId,
     cellRef: op.cellRef,
@@ -179,6 +193,7 @@ export async function acceptOperation(input: {
     correlationId: input.correlationId,
   });
   await appendWorkflowTransition({
+    tenantId: input.tenantId,
     sessionId: op.sessionId,
     operationId: op.id,
     correlationId: input.correlationId,
@@ -188,6 +203,7 @@ export async function acceptOperation(input: {
     reason: "Formula executed and audit logged.",
   });
   await emitOrchestratorEvent({
+    tenantId: input.tenantId,
     correlationId: input.correlationId,
     sessionId: op.sessionId,
     stage: "accept_operation",
@@ -199,10 +215,11 @@ export async function acceptOperation(input: {
   return { status: "applied" as const, operationId: op.id, values };
 }
 
-export async function rejectOperation(input: { operationId: string; actor: string; correlationId: string }) {
-  const op = await markOperationRejected(input.operationId);
+export async function rejectOperation(input: { tenantId: string; operationId: string; actor: string; correlationId: string }) {
+  const op = await markOperationRejected(input.operationId, input.tenantId);
   if (!op) return { status: "not_found" as const };
   await appendWorkflowTransition({
+    tenantId: input.tenantId,
     sessionId: op.sessionId,
     operationId: op.id,
     correlationId: input.correlationId,
@@ -212,6 +229,7 @@ export async function rejectOperation(input: { operationId: string; actor: strin
     reason: "Reviewer rejected pending operation.",
   });
   await emitOrchestratorEvent({
+    tenantId: input.tenantId,
     correlationId: input.correlationId,
     sessionId: op.sessionId,
     stage: "reject_operation",

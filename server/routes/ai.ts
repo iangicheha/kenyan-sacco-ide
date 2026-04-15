@@ -21,6 +21,10 @@ const requestSchema = z.object({
 
 export const aiRouter = Router();
 
+function isSessionOwnedByTenant(sessionId: string, tenantId: string): boolean {
+  return sessionId.startsWith(`${tenantId}:`);
+}
+
 function wantsFileSummary(prompt: string): boolean {
   // Only match requests for basic metadata/preview, NOT analysis questions
   // "show columns", "what headers", "preview" -> metadata only
@@ -38,8 +42,8 @@ function isGreetingOrSmallTalk(prompt: string): boolean {
   return /^(hi|hello|hey|yo|good (morning|afternoon|evening)|how are you|thanks|thank you|ok|okay)\b/.test(text);
 }
 
-function buildFileSummary(fileName: string, sheetName?: string) {
-  const availableSheets = getUploadedFileSheetNames(fileName);
+function buildFileSummary(tenantId: string, fileName: string, sheetName?: string) {
+  const availableSheets = getUploadedFileSheetNames(tenantId, fileName);
   const targetSheetName = sheetName ?? availableSheets[0];
   if (!targetSheetName) {
     return {
@@ -48,7 +52,7 @@ function buildFileSummary(fileName: string, sheetName?: string) {
     };
   }
 
-  const sheet = getUploadedSheet(fileName, targetSheetName);
+  const sheet = getUploadedSheet(tenantId, fileName, targetSheetName);
   if (!sheet) {
     return {
       status: "file_summary",
@@ -72,17 +76,17 @@ function buildFileSummary(fileName: string, sheetName?: string) {
   };
 }
 
-function resolveSheet(fileName: string, sheetName?: string) {
-  const availableSheets = getUploadedFileSheetNames(fileName);
+function resolveSheet(tenantId: string, fileName: string, sheetName?: string) {
+  const availableSheets = getUploadedFileSheetNames(tenantId, fileName);
   const targetSheetName = sheetName ?? availableSheets[0];
   if (!targetSheetName) return null;
-  const sheet = getUploadedSheet(fileName, targetSheetName);
+  const sheet = getUploadedSheet(tenantId, fileName, targetSheetName);
   if (!sheet) return null;
   return { sheet, targetSheetName };
 }
 
-function buildSheetContext(fileName: string, prompt: string, sheetName?: string) {
-  const resolved = resolveSheet(fileName, sheetName);
+function buildSheetContext(tenantId: string, fileName: string, prompt: string, sheetName?: string) {
+  const resolved = resolveSheet(tenantId, fileName, sheetName);
   if (!resolved) return null as null;
   const { sheet, targetSheetName } = resolved;
   const sampleRows = sheet.rows.slice(0, 100);
@@ -97,13 +101,14 @@ function buildSheetContext(fileName: string, prompt: string, sheetName?: string)
 }
 
 async function answerConversationally(input: {
+  tenantId: string;
   prompt: string;
   fileName?: string;
   sheetName?: string;
 }) {
   let contextNote = "No file context provided.";
   if (input.fileName) {
-    const context = buildSheetContext(input.fileName, input.prompt, input.sheetName);
+    const context = buildSheetContext(input.tenantId, input.fileName, input.prompt, input.sheetName);
     if (context) {
       contextNote = `File: ${context.fileName}, Sheet: ${context.sheetName}, Rows: ${context.rowCount}, Headers: ${context.headers.join(", ")}, SampleRows: ${JSON.stringify(context.sampleRows)}`;
     }
@@ -144,8 +149,8 @@ Return strict JSON: {"answer": "your response string"}`,
   };
 }
 
-async function answerFileQuestionWithModel(fileName: string, prompt: string, sheetName?: string) {
-  const context = buildSheetContext(fileName, prompt, sheetName);
+async function answerFileQuestionWithModel(tenantId: string, fileName: string, prompt: string, sheetName?: string) {
+  const context = buildSheetContext(tenantId, fileName, prompt, sheetName);
   if (!context) return null;
 
   const route = selectModelRoute(
@@ -191,6 +196,7 @@ Return strict JSON: {"answer": "your response string"}`,
 aiRouter.post("/chat", async (req, res) => {
   const request = req as AuthenticatedRequest;
   const context = getRequestContext(req);
+  const tenantId = request.user?.tenantId ?? "default";
   try {
     res.setHeader("x-correlation-id", context.correlationId);
     const parsed = requestSchema.safeParse(req.body);
@@ -201,7 +207,14 @@ aiRouter.post("/chat", async (req, res) => {
         details: parsed.error.flatten(),
       });
     }
+    if (!isSessionOwnedByTenant(parsed.data.sessionId, tenantId)) {
+      return res.status(403).json({
+        error: "Forbidden. Cross-tenant session access denied.",
+        correlationId: context.correlationId,
+      });
+    }
     await emitOrchestratorEvent({
+      tenantId,
       correlationId: context.correlationId,
       sessionId: parsed.data.sessionId,
       stage: "ingest",
@@ -213,22 +226,25 @@ aiRouter.post("/chat", async (req, res) => {
 
     if (parsed.data.fileName && wantsFileSummary(parsed.data.prompt)) {
       await emitOrchestratorEvent({
+        tenantId,
         correlationId: context.correlationId,
         sessionId: parsed.data.sessionId,
         stage: "file_summary_shortcut",
         status: "ok",
       });
-      return res.json({ ...buildFileSummary(parsed.data.fileName, parsed.data.sheetName), correlationId: context.correlationId });
+      return res.json({ ...buildFileSummary(tenantId, parsed.data.fileName, parsed.data.sheetName), correlationId: context.correlationId });
     }
 
     if (isGreetingOrSmallTalk(parsed.data.prompt)) {
       await emitOrchestratorEvent({
+        tenantId,
         correlationId: context.correlationId,
         sessionId: parsed.data.sessionId,
         stage: "small_talk",
         status: "ok",
       });
       const response = await answerConversationally({
+        tenantId,
         prompt: parsed.data.prompt,
         fileName: undefined,
         sheetName: undefined,
@@ -241,6 +257,7 @@ aiRouter.post("/chat", async (req, res) => {
     const classifyStartedAt = Date.now();
     const inferredIntent = await classifyIntent(parsed.data.prompt, parsed.data.regulator as Regulator);
     await emitOrchestratorEvent({
+      tenantId,
       correlationId: context.correlationId,
       sessionId: parsed.data.sessionId,
       stage: "classify_route",
@@ -252,6 +269,7 @@ aiRouter.post("/chat", async (req, res) => {
 
     if (!shouldRunOperationalPipeline) {
       await emitOrchestratorEvent({
+        tenantId,
         correlationId: context.correlationId,
         sessionId: parsed.data.sessionId,
         stage: "route_non_operational",
@@ -259,10 +277,11 @@ aiRouter.post("/chat", async (req, res) => {
         details: { intent: inferredIntent.intent, confidence: inferredIntent.confidence },
       });
       if (parsed.data.fileName) {
-        const answer = await answerFileQuestionWithModel(parsed.data.fileName, parsed.data.prompt, parsed.data.sheetName);
+        const answer = await answerFileQuestionWithModel(tenantId, parsed.data.fileName, parsed.data.prompt, parsed.data.sheetName);
         if (answer) return res.json({ ...answer, correlationId: context.correlationId });
       }
       const response = await answerConversationally({
+        tenantId,
         prompt: parsed.data.prompt,
         fileName: parsed.data.fileName,
         sheetName: parsed.data.sheetName,
@@ -273,6 +292,7 @@ aiRouter.post("/chat", async (req, res) => {
     }
 
     const result = await runPlanningPipeline({
+      tenantId,
       sessionId: parsed.data.sessionId,
       analystPrompt: parsed.data.prompt,
       regulator: parsed.data.regulator as Regulator,
@@ -282,9 +302,9 @@ aiRouter.post("/chat", async (req, res) => {
     });
 
     if (result.status === "clarification_required" && parsed.data.fileName) {
-      const answer = await answerFileQuestionWithModel(parsed.data.fileName, parsed.data.prompt, parsed.data.sheetName);
+      const answer = await answerFileQuestionWithModel(tenantId, parsed.data.fileName, parsed.data.prompt, parsed.data.sheetName);
       if (answer) return res.json({ ...answer, correlationId: context.correlationId });
-      return res.json({ ...buildFileSummary(parsed.data.fileName, parsed.data.sheetName), correlationId: context.correlationId });
+      return res.json({ ...buildFileSummary(tenantId, parsed.data.fileName, parsed.data.sheetName), correlationId: context.correlationId });
     }
 
     return res.json({ ...result, correlationId: context.correlationId });

@@ -3,12 +3,15 @@
 This project stores operational safety records in:
 
 - `idempotency_records` (dedupe response cache)
+- `audit_log` (immutable execution trail)
 - `orchestrator_events` (workflow stage telemetry)
+- `workflow_transitions` (state lifecycle trace)
 
 ## Retention Policy
 
 - `idempotency_records`: governed by `IDEMPOTENCY_TTL_SECONDS` (default `86400` / 24h)
-- `orchestrator_events`: governed by `ORCHESTRATOR_RETENTION_DAYS` (default `30`)
+- `audit_log`: governed by `RETENTION_DAYS_AUDIT` (default `365`)
+- `orchestrator_events` + `workflow_transitions`: governed by `RETENTION_DAYS_TELEMETRY` (default `90`)
 
 ## Cleanup Script
 
@@ -21,8 +24,9 @@ pnpm cleanup:retention
 The script:
 
 1. Deletes expired rows from `idempotency_records` using `IDEMPOTENCY_TTL_SECONDS`
-2. Deletes old rows from `orchestrator_events` older than `ORCHESTRATOR_RETENTION_DAYS`
-3. Prints a JSON summary with deletion counts and mode (`supabase`, `memory`, or `none`)
+2. Deletes old rows from `audit_log` older than `RETENTION_DAYS_AUDIT`
+3. Deletes old rows from telemetry tables (`orchestrator_events`, `workflow_transitions`) older than `RETENTION_DAYS_TELEMETRY`
+4. Prints a JSON summary with deletion counts and mode (`supabase`, `memory`, or `none`)
 
 ## Scheduling
 

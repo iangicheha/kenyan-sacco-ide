@@ -2,13 +2,14 @@ import { Router } from "express";
 import { z } from "zod";
 import { classifyIntent } from "../agents/intentClassifier.js";
 import { getUploadedFileSheetNames, getUploadedSheet } from "../data/uploadStore.js";
+import { enqueueAiPlanJob } from "../engine/asyncJobs.js";
 import { emitOrchestratorEvent } from "../engine/orchestratorTelemetry.js";
 import { getRequestContext } from "../engine/requestContext.js";
+import { resolvePrompt } from "../lib/promptProvider.js";
 import { askRoutedJson } from "../lib/modelRouterClient.js";
 import type { AuthenticatedRequest } from "../middleware/auth.js";
 import { buildRoutingInput } from "../model-router/catalog.js";
 import { selectModelRoute } from "../model-router/router.js";
-import { runPlanningPipeline } from "../pipeline/runAiPipeline.js";
 import type { Regulator } from "../types.js";
 
 const requestSchema = z.object({
@@ -102,6 +103,9 @@ function buildSheetContext(tenantId: string, fileName: string, prompt: string, s
 
 async function answerConversationally(input: {
   tenantId: string;
+  sessionId: string;
+  correlationId: string;
+  role: "read-only" | "analyst" | "reviewer" | "admin";
   prompt: string;
   fileName?: string;
   sheetName?: string;
@@ -122,34 +126,43 @@ async function answerConversationally(input: {
       latencyPriority: "medium",
     })
   );
+  const prompt = await resolvePrompt("chat_assistant");
 
   const modelResult = await askRoutedJson<{ answer?: string; response?: string }>({
     route,
-    system: `You are a Meridian Financial AI spreadsheet assistant for Kenyan SACCOs and financial institutions.
-
-Provide clear, professional responses about spreadsheet data and financial operations.
-
-GUIDELINES:
-- Be concise and professional
-- Reference specific columns, ranges, or cells when applicable
-- Cite regulatory guidelines (CBK, SASRA, IRA, RBA, CMA) when relevant
-- If file context is provided, base your answer on that data
-- For calculations, explain the formula logic, not just the result
-
-Return strict JSON: {"answer": "your response string"}`,
+    system: prompt.template,
     user: JSON.stringify({
       prompt: input.prompt,
       context: contextNote,
     }),
+    governance: {
+      tenantId: input.tenantId,
+      sessionId: input.sessionId,
+      correlationId: input.correlationId,
+      role: input.role,
+      actionType: "chat",
+      promptId: prompt.promptId,
+      promptVersion: prompt.version,
+    },
   });
 
   return {
     status: "chat",
-    message: modelResult?.answer ?? modelResult?.response ?? "I could not generate a response right now.",
+    message:
+      modelResult.data?.answer ?? modelResult.data?.response ?? "I could not generate a response right now.",
   };
 }
 
-async function answerFileQuestionWithModel(tenantId: string, fileName: string, prompt: string, sheetName?: string) {
+async function answerFileQuestionWithModel(input: {
+  tenantId: string;
+  sessionId: string;
+  correlationId: string;
+  role: "read-only" | "analyst" | "reviewer" | "admin";
+  fileName: string;
+  prompt: string;
+  sheetName?: string;
+}) {
+  const { tenantId, fileName, prompt, sheetName } = input;
   const context = buildSheetContext(tenantId, fileName, prompt, sheetName);
   if (!context) return null;
 
@@ -161,29 +174,27 @@ async function answerFileQuestionWithModel(tenantId: string, fileName: string, p
       latencyPriority: "medium",
     })
   );
+  const filePrompt = await resolvePrompt("file_analyst");
 
   const modelResult = await askRoutedJson<{ answer?: string }>({
     route,
-    system: `You are a Meridian Financial AI spreadsheet analyst for Kenyan SACCOs and financial institutions.
-
-Analyze the provided spreadsheet data and provide structured insights.
-
-GUIDELINES:
-- Answer ONLY from the provided sheet context
-- Reference specific column names, row ranges, or cell addresses
-- Highlight anomalies, trends, or compliance issues where relevant
-- If data is insufficient, clearly state what is missing
-- For financial metrics, explain the calculation methodology
-- Cite regulatory guidelines (CBK, SASRA) when applicable
-
-Return strict JSON: {"answer": "your response string"}`,
+    system: filePrompt.template,
     user: JSON.stringify(context),
+    governance: {
+      tenantId: input.tenantId,
+      sessionId: input.sessionId,
+      correlationId: input.correlationId,
+      role: input.role,
+      actionType: "analysis",
+      promptId: filePrompt.promptId,
+      promptVersion: filePrompt.version,
+    },
   });
 
-  if (modelResult?.answer && modelResult.answer.trim().length > 0) {
+  if (modelResult.data?.answer && modelResult.data.answer.trim().length > 0) {
     return {
       status: "file_answer",
-      summary: modelResult.answer.trim(),
+      summary: modelResult.data.answer.trim(),
     };
   }
 
@@ -245,6 +256,9 @@ aiRouter.post("/chat", async (req, res) => {
       });
       const response = await answerConversationally({
         tenantId,
+        sessionId: parsed.data.sessionId,
+        correlationId: context.correlationId,
+        role: request.user?.role ?? "analyst",
         prompt: parsed.data.prompt,
         fileName: undefined,
         sheetName: undefined,
@@ -255,7 +269,12 @@ aiRouter.post("/chat", async (req, res) => {
     }
 
     const classifyStartedAt = Date.now();
-    const inferredIntent = await classifyIntent(parsed.data.prompt, parsed.data.regulator as Regulator);
+    const inferredIntent = await classifyIntent(parsed.data.prompt, parsed.data.regulator as Regulator, {
+      tenantId,
+      sessionId: parsed.data.sessionId,
+      correlationId: context.correlationId,
+      role: request.user?.role ?? "analyst",
+    });
     await emitOrchestratorEvent({
       tenantId,
       correlationId: context.correlationId,
@@ -277,11 +296,22 @@ aiRouter.post("/chat", async (req, res) => {
         details: { intent: inferredIntent.intent, confidence: inferredIntent.confidence },
       });
       if (parsed.data.fileName) {
-        const answer = await answerFileQuestionWithModel(tenantId, parsed.data.fileName, parsed.data.prompt, parsed.data.sheetName);
+        const answer = await answerFileQuestionWithModel({
+          tenantId,
+          sessionId: parsed.data.sessionId,
+          correlationId: context.correlationId,
+          role: request.user?.role ?? "analyst",
+          fileName: parsed.data.fileName,
+          prompt: parsed.data.prompt,
+          sheetName: parsed.data.sheetName,
+        });
         if (answer) return res.json({ ...answer, correlationId: context.correlationId });
       }
       const response = await answerConversationally({
         tenantId,
+        sessionId: parsed.data.sessionId,
+        correlationId: context.correlationId,
+        role: request.user?.role ?? "analyst",
         prompt: parsed.data.prompt,
         fileName: parsed.data.fileName,
         sheetName: parsed.data.sheetName,
@@ -291,23 +321,36 @@ aiRouter.post("/chat", async (req, res) => {
       );
     }
 
-    const result = await runPlanningPipeline({
+    // Async pipeline is now the only path - always queue for processing
+    const queuedJob = await enqueueAiPlanJob({
       tenantId,
       sessionId: parsed.data.sessionId,
-      analystPrompt: parsed.data.prompt,
-      regulator: parsed.data.regulator as Regulator,
       correlationId: context.correlationId,
-      actor: request.user?.email ?? "system",
-      preclassifiedIntent: inferredIntent,
+      createdBy: request.user?.email ?? "system",
+      payload: {
+        prompt: parsed.data.prompt,
+        regulator: parsed.data.regulator,
+        actor: request.user?.email ?? "system",
+        uploadId: parsed.data.fileName,
+        sheetName: parsed.data.sheetName,
+      },
     });
-
-    if (result.status === "clarification_required" && parsed.data.fileName) {
-      const answer = await answerFileQuestionWithModel(tenantId, parsed.data.fileName, parsed.data.prompt, parsed.data.sheetName);
-      if (answer) return res.json({ ...answer, correlationId: context.correlationId });
-      return res.json({ ...buildFileSummary(tenantId, parsed.data.fileName, parsed.data.sheetName), correlationId: context.correlationId });
-    }
-
-    return res.json({ ...result, correlationId: context.correlationId });
+    await emitOrchestratorEvent({
+      tenantId,
+      correlationId: context.correlationId,
+      sessionId: parsed.data.sessionId,
+      stage: "queue_ai_plan",
+      status: "ok",
+      details: { jobId: queuedJob.id, requestId: queuedJob.requestId },
+    });
+    return res.status(202).json({
+      status: "queued",
+      mode: "async",
+      queue: "ai_plan",
+      jobId: queuedJob.id,
+      requestId: queuedJob.requestId,
+      correlationId: context.correlationId,
+    });
   } catch (error) {
     console.error("AI chat route error:", error);
     return res.status(500).json({

@@ -7,6 +7,7 @@ import { listPendingOperations } from "../engine/pendingOps.js";
 import { getRequestContext } from "../engine/requestContext.js";
 import { assertTenantAccess } from "../engine/tenantAccess.js";
 import { listWorkflowTransitions } from "../engine/workflowState.js";
+import { isServiceUnavailableError } from "../lib/serviceUnavailableError.js";
 import { userHasAnyRole, type AuthenticatedRequest } from "../middleware/auth.js";
 import { acceptOperation, rejectOperation } from "../pipeline/runAiPipeline.js";
 
@@ -72,43 +73,64 @@ spreadsheetRouter.post("/accept", async (req, res) => {
     });
   }
 
-  if (context.idempotencyKey) {
-    const cached = await getIdempotentResponse("spreadsheet.accept", context.idempotencyKey);
-    if (cached) {
-      return res.status(cached.statusCode).json(cached.body);
+  try {
+    if (context.idempotencyKey) {
+      const cached = await getIdempotentResponse("spreadsheet.accept", context.idempotencyKey);
+      if (cached) {
+        return res.status(cached.statusCode).json(cached.body);
+      }
     }
-  }
 
-  const result = await acceptOperation({
-    tenantId: request.user?.tenantId ?? "default",
-    operationId: parsed.data.operationId,
-    analyst: parsed.data.analyst,
-    sheetData: parsed.data.sheetData,
-    correlationId: context.correlationId,
-  });
-  if (result.status === "not_found") {
-    const body = { ...result, correlationId: context.correlationId };
-    if (context.idempotencyKey) {
-      await saveIdempotentResponse("spreadsheet.accept", context.idempotencyKey, { statusCode: 404, body });
+    const result = await acceptOperation({
+      tenantId: request.user?.tenantId ?? "default",
+      operationId: parsed.data.operationId,
+      analyst: parsed.data.analyst,
+      sheetData: parsed.data.sheetData,
+      correlationId: context.correlationId,
+    });
+    if (result.status === "forbidden") {
+      return res.status(403).json({
+        error: "Forbidden. Cross-tenant operation access denied.",
+        correlationId: context.correlationId,
+      });
     }
-    return res.status(404).json(body);
-  }
-  if (result.status === "invalid_operation") {
-    const body = { ...result, correlationId: context.correlationId };
-    if (context.idempotencyKey) {
-      await saveIdempotentResponse("spreadsheet.accept", context.idempotencyKey, { statusCode: 400, body });
+    if (result.status === "not_found") {
+      const body = { ...result, correlationId: context.correlationId };
+      if (context.idempotencyKey) {
+        await saveIdempotentResponse("spreadsheet.accept", context.idempotencyKey, { statusCode: 404, body });
+      }
+      return res.status(404).json(body);
     }
-    return res.status(400).json(body);
+    if (result.status === "invalid_operation") {
+      const body = { ...result, correlationId: context.correlationId };
+      if (context.idempotencyKey) {
+        await saveIdempotentResponse("spreadsheet.accept", context.idempotencyKey, { statusCode: 400, body });
+      }
+      return res.status(400).json(body);
+    }
+    const body = {
+      ...result,
+      correlationId: context.correlationId,
+      reviewer: request.user?.email ?? parsed.data.analyst,
+    };
+    if (context.idempotencyKey) {
+      await saveIdempotentResponse("spreadsheet.accept", context.idempotencyKey, { statusCode: 200, body });
+    }
+    return res.json(body);
+  } catch (error) {
+    if (isServiceUnavailableError(error)) {
+      return res.status(503).json({
+        error: "Service temporarily unavailable for critical write path.",
+        message: "Please retry after data services recover.",
+        correlationId: context.correlationId,
+      });
+    }
+    return res.status(500).json({
+      error: "Failed to accept operation.",
+      message: "Please retry in a moment.",
+      correlationId: context.correlationId,
+    });
   }
-  const body = {
-    ...result,
-    correlationId: context.correlationId,
-    reviewer: request.user?.email ?? parsed.data.analyst,
-  };
-  if (context.idempotencyKey) {
-    await saveIdempotentResponse("spreadsheet.accept", context.idempotencyKey, { statusCode: 200, body });
-  }
-  return res.json(body);
 });
 
 spreadsheetRouter.post("/reject", async (req, res) => {
@@ -130,31 +152,51 @@ spreadsheetRouter.post("/reject", async (req, res) => {
     });
   }
 
-  if (context.idempotencyKey) {
-    const cached = await getIdempotentResponse("spreadsheet.reject", context.idempotencyKey);
-    if (cached) {
-      return res.status(cached.statusCode).json(cached.body);
+  try {
+    if (context.idempotencyKey) {
+      const cached = await getIdempotentResponse("spreadsheet.reject", context.idempotencyKey);
+      if (cached) {
+        return res.status(cached.statusCode).json(cached.body);
+      }
     }
-  }
-
-  const result = await rejectOperation({
-    tenantId: request.user?.tenantId ?? "default",
-    operationId: parsed.data.operationId,
-    actor: request.user?.email ?? "reviewer",
-    correlationId: context.correlationId,
-  });
-  if (result.status === "not_found") {
+    const result = await rejectOperation({
+      tenantId: request.user?.tenantId ?? "default",
+      operationId: parsed.data.operationId,
+      actor: request.user?.email ?? "reviewer",
+      correlationId: context.correlationId,
+    });
+    if (result.status === "forbidden") {
+      return res.status(403).json({
+        error: "Forbidden. Cross-tenant operation access denied.",
+        correlationId: context.correlationId,
+      });
+    }
+    if (result.status === "not_found") {
+      const body = { ...result, correlationId: context.correlationId };
+      if (context.idempotencyKey) {
+        await saveIdempotentResponse("spreadsheet.reject", context.idempotencyKey, { statusCode: 404, body });
+      }
+      return res.status(404).json(body);
+    }
     const body = { ...result, correlationId: context.correlationId };
     if (context.idempotencyKey) {
-      await saveIdempotentResponse("spreadsheet.reject", context.idempotencyKey, { statusCode: 404, body });
+      await saveIdempotentResponse("spreadsheet.reject", context.idempotencyKey, { statusCode: 200, body });
     }
-    return res.status(404).json(body);
+    return res.json(body);
+  } catch (error) {
+    if (isServiceUnavailableError(error)) {
+      return res.status(503).json({
+        error: "Service temporarily unavailable for critical write path.",
+        message: "Please retry after data services recover.",
+        correlationId: context.correlationId,
+      });
+    }
+    return res.status(500).json({
+      error: "Failed to reject operation.",
+      message: "Please retry in a moment.",
+      correlationId: context.correlationId,
+    });
   }
-  const body = { ...result, correlationId: context.correlationId };
-  if (context.idempotencyKey) {
-    await saveIdempotentResponse("spreadsheet.reject", context.idempotencyKey, { statusCode: 200, body });
-  }
-  return res.json(body);
 });
 
 spreadsheetRouter.get("/audit/:sessionId", async (req, res) => {

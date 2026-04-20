@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import * as XLSX from "xlsx";
-import { getUploadedSheet, setUploadedFileSheets, type SheetPreviewRow, type StoredSheet } from "../data/uploadStore.js";
+import { deleteUploadedFile, getUploadedSheet, listUploadedFiles, setUploadedFileSheets, type SheetPreviewRow, type StoredSheet } from "../data/uploadStore.js";
 import { userHasAnyRole, type AuthenticatedRequest } from "../middleware/auth.js";
 
 export const filesRouter = Router();
@@ -70,6 +70,7 @@ filesRouter.post("/upload", upload.array("files"), (req, res) => {
   if (!request.user) {
     return res.status(401).json({ error: "Unauthorized." });
   }
+  const tenantId = request.user.tenantId;
   if (!userHasAnyRole(request, ["analyst", "admin"])) {
     return res.status(403).json({ error: "Forbidden. Analyst or admin role required for upload." });
   }
@@ -99,7 +100,7 @@ filesRouter.post("/upload", upload.array("files"), (req, res) => {
       };
     }
 
-    setUploadedFileSheets(request.user.tenantId, file.originalname, sheetRecord);
+    setUploadedFileSheets(tenantId, file.originalname, sheetRecord);
 
     const sheetNames = Object.keys(sheetRecord);
     const defaultSheetName = sheetNames[0] ?? "Sheet1";
@@ -153,6 +154,30 @@ filesRouter.get("/upload/preview", (req, res) => {
     totalRows: sheet.rows.length,
     nextOffset,
   });
+});
+
+filesRouter.get("/", (req, res) => {
+  const request = req as AuthenticatedRequest;
+  if (!request.user) return res.status(401).json({ error: "Unauthorized." });
+  if (!userHasAnyRole(request, ["read-only", "reviewer", "analyst", "admin"])) {
+    return res.status(403).json({ error: "Forbidden." });
+  }
+  return res.json({
+    files: listUploadedFiles(request.user.tenantId),
+  });
+});
+
+filesRouter.delete("/:fileId", (req, res) => {
+  const request = req as AuthenticatedRequest;
+  if (!request.user) return res.status(401).json({ error: "Unauthorized." });
+  if (!userHasAnyRole(request, ["admin"])) {
+    return res.status(403).json({ error: "Forbidden. Admin role required." });
+  }
+  const fileId = String(req.params.fileId ?? "");
+  const fileName = decodeURIComponent(fileId);
+  const deleted = deleteUploadedFile(request.user.tenantId, fileName);
+  if (!deleted) return res.status(404).json({ error: "File not found." });
+  return res.json({ status: "ok", deleted: true, fileName });
 });
 
 filesRouter.get("/health", (_req, res) => {

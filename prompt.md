@@ -1,92 +1,131 @@
 You are a senior backend engineer working on a Node.js/TypeScript financial AI system.
 
-Your task is to upgrade the system to enterprise production readiness without breaking existing functionality. Follow the architecture already in place (routes → pipeline → agents → engine).
+Current state:
+- Foundation hardening is mostly complete (RBAC, idempotency, workflow telemetry, tenant scaffolding, tests).
+- Your task now is to implement ONLY what is left for production readiness.
+- Follow existing architecture: routes -> pipeline -> agents -> engine.
+- Preserve backward compatibility where possible.
 
-Focus on implementing the following 5 upgrades:
-
---------------------------------------------------
-1. Secure File APIs (CRITICAL)
---------------------------------------------------
-- Locate where filesRouter is mounted (server/index.ts).
-- Add requireAuth middleware to all file routes.
-- Implement role-based access control:
-  - admin: full access
-  - reviewer: preview only (unless a dedicated file-approval workflow exists)
-  - analyst: upload + preview
-  - read-only: preview only
-- Ensure upload and preview endpoints validate user permissions before access.
-- Reject unauthorized requests with proper HTTP status codes (401/403).
+Implement the remaining work in this priority order.
 
 --------------------------------------------------
-2. Restrict CORS Policy
+1) Complete Phase 2: DB-driven Policy Engine
 --------------------------------------------------
-- Replace app.use(cors()) with strict configuration.
-- Use environment-based allowlist:
-  - development: allow localhost
-  - production: allow only trusted domains
-- Example:
-  ALLOWED_ORIGINS=https://a.com,https://b.com
-  origin: parsed allowlist array from ALLOWED_ORIGINS
-- Reject all unknown origins.
+Goal:
+- Replace static policy gating with a versioned, persistent policy model.
 
---------------------------------------------------
-3. Enforce Tenant Isolation (VERY CRITICAL)
---------------------------------------------------
-- Modify JWT payload to include tenantId.
-- Update requireAuth middleware to attach tenantId to request context.
-- Enforce tenant filtering on ALL:
-  - session reads
-  - file access
-  - audit logs
-  - pipeline operations
-- Ensure no cross-tenant data access is possible.
-- Add helper:
-  assertTenantAccess(resourceTenantId, userTenantId)
-
---------------------------------------------------
-4. Upgrade Policy Engine
---------------------------------------------------
-- Replace static policy logic with a DB-driven policy system.
-- Create a Policy model with:
+Required changes:
+- Add a `policies` table/model (or equivalent data layer) with:
   - id
   - regulator
   - version
-  - rules (JSON)
+  - rules_json
   - effective_from
   - effective_to
-- Update planner/orchestrator to fetch active policy dynamically.
-- Ensure versioning support (multiple policies can exist, only one active per time range).
+  - is_active
+  - created_at
+- Add a policy repository/service:
+  - getActivePolicy(regulator, atTime)
+  - validatePolicyStructure(rules_json)
+- Update policy gate/orchestrator to use active DB policy (not hardcoded thresholds).
+- Attach `policyVersion` (and policy id where useful) to:
+  - planning outputs
+  - audit records
+  - telemetry events
+
+Acceptance criteria:
+- System can hold multiple policy versions per regulator.
+- Active policy is selected by time range and active flag.
+- No high-risk operation proceeds without resolved policy.
 
 --------------------------------------------------
-5. Implement Retention & Archival
+2) Complete Tenant Isolation End-to-End
 --------------------------------------------------
-- Add retention rules for:
+Goal:
+- Ensure no cross-tenant data visibility or mutation is possible.
+
+Required changes:
+- Audit all routes and engine reads/writes for missing tenant filters.
+- Add/centralize helper:
+  - assertTenantAccess(resourceTenantId, userTenantId)
+- Ensure tenant filter is enforced consistently across:
+  - pending operations
   - audit logs
-  - telemetry
-  - idempotency records
-- Create background job (cron or worker) to:
-  - delete expired records
-  - archive important logs (optional: move to cold storage)
-- Add config:
-  RETENTION_DAYS_AUDIT
-  RETENTION_DAYS_TELEMETRY
+  - workflow transitions
+  - orchestrator events
+  - file previews/uploads
+- Add negative tests explicitly proving cross-tenant denial.
+
+Acceptance criteria:
+- Every protected data access path includes tenant scoping.
+- Cross-tenant requests fail with 403 and are logged.
+
+--------------------------------------------------
+3) Complete Retention & Archival Controls
+--------------------------------------------------
+Goal:
+- Add production-grade data lifecycle management.
+
+Required changes:
+- Add retention configs:
+  - RETENTION_DAYS_AUDIT
+  - RETENTION_DAYS_TELEMETRY
+  - RETENTION_DAYS_IDEMPOTENCY
+- Implement retention jobs/service methods:
+  - cleanupExpiredAuditRecords()
+  - cleanupExpiredTelemetryRecords()
+  - cleanupExpiredIdempotencyRecords() (extend existing if needed)
+- Expose controlled admin endpoints and/or worker entrypoints for these jobs.
+- Optional archival stub/interface for cold storage export.
+
+Acceptance criteria:
+- Retention jobs are testable and idempotent.
+- Cleanup operations are role-protected and observable.
+
+--------------------------------------------------
+4) Start Phase 3: Reliability Runtime Controls
+--------------------------------------------------
+Goal:
+- Improve operational resilience for AI/provider failures.
+
+Required changes:
+- Add provider retry policy with bounded retries + jitter.
+- Add simple circuit-breaker state for failing providers/routes.
+- Emit stage-level failure reason codes for retries/fallbacks.i want u to look
+- Add a lightweight `/api/admin/metrics/orchestrator` summary endpoint.
+
+Acceptance criteria:
+- Repeated provider failures trigger fallback and breaker behavior.
+- Metrics expose failure/fallback trends.
+
+--------------------------------------------------
+5) Testing and Verification (Mandatory)
+--------------------------------------------------
+Add/extend tests for:
+- 401/403 auth/role denial
+- cross-tenant denial
+- policy version selection and enforcement
+- retention cleanup correctness
+- retry/fallback behavior in orchestrator/model routing path
+
+Run and pass:
+- pnpm test
+- pnpm check
 
 --------------------------------------------------
 Constraints
 --------------------------------------------------
-- Do NOT break existing APIs or routes.
-- Maintain backward compatibility.
-- Use TypeScript types strictly.
-- Add validation where needed.
-- Keep code modular and clean.
-- Add integration tests for:
-  - 401/403 authorization failures
-  - cross-tenant access denial on protected resources
+- Do NOT remove existing endpoints.
+- Keep API response contracts backward compatible unless change is justified and documented.
+- Use strict TypeScript and Zod validation for new contracts.
+- Keep changes modular (new services/helpers over large monolithic edits).
+- No secrets in code or docs.
 
 --------------------------------------------------
 Output Format
 --------------------------------------------------
-1. Show modified files
-2. Show new middleware/helpers
-3. Show schema/model additions
-4. Brief explanation of each change
+1. Modified files list
+2. New tables/models/services
+3. Key behavior changes
+4. Test results (`pnpm test`, `pnpm check`)
+5. Remaining risks (if any)

@@ -5,6 +5,7 @@ dotenv.config();
 export const env = {
   port: Number(process.env.PORT ?? 4100),
   nodeEnv: process.env.NODE_ENV ?? "development",
+  disableRbac: (process.env.DISABLE_RBAC ?? "false") === "true",
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
   intentModel: process.env.CLAUDE_INTENT_MODEL ?? "claude-3-5-haiku-latest",
   plannerModel: process.env.CLAUDE_PLANNER_MODEL ?? "claude-sonnet-4-5",
@@ -21,9 +22,26 @@ export const env = {
   idempotencyTtlSeconds: Number(process.env.IDEMPOTENCY_TTL_SECONDS ?? 86400),
   retentionDaysAudit: Number(process.env.RETENTION_DAYS_AUDIT ?? 365),
   retentionDaysTelemetry: Number(process.env.RETENTION_DAYS_TELEMETRY ?? 90),
+  retentionDaysIdempotency: Number(process.env.RETENTION_DAYS_IDEMPOTENCY ?? 30),
+  retentionDaysPendingRejected: Number(process.env.RETENTION_DAYS_PENDING_REJECTED ?? 30),
+  providerRetryCount: Number(process.env.PROVIDER_RETRY_COUNT ?? 2),
+  providerRetryJitterMs: Number(process.env.PROVIDER_RETRY_JITTER_MS ?? 200),
+  providerCircuitFailureThreshold: Number(process.env.PROVIDER_CIRCUIT_FAILURE_THRESHOLD ?? 3),
+  providerCircuitCooldownMs: Number(process.env.PROVIDER_CIRCUIT_COOLDOWN_MS ?? 30000),
   allowedOrigins: (process.env.ALLOWED_ORIGINS ?? "").split(",").map((item) => item.trim()).filter(Boolean),
-  allowInMemoryFallback:
-    (process.env.ALLOW_IN_MEMORY_FALLBACK ?? (process.env.NODE_ENV === "production" ? "false" : "true")) === "true",
+  asyncPipelineEnabled: (process.env.ASYNC_PIPELINE_ENABLED ?? (process.env.NODE_ENV === "production" ? "true" : "false")) === "true",
+  asyncWorkerEnabled: (process.env.ASYNC_WORKER_ENABLED ?? "false") === "true",
+  asyncWorkerExecutionEnabled: (process.env.ASYNC_WORKER_EXECUTION_ENABLED ?? "false") === "true",
+  asyncWorkerPollMs: Number(process.env.ASYNC_WORKER_POLL_MS ?? 2000),
+  asyncWorkerBatchSize: Number(process.env.ASYNC_WORKER_BATCH_SIZE ?? 5),
+  wsRealtimeEnabled: (process.env.WS_REALTIME_ENABLED ?? (process.env.NODE_ENV === "production" ? "true" : "false")) === "true",
+  rlsEnforced: (process.env.RLS_ENFORCED ?? (process.env.NODE_ENV === "production" ? "true" : "false")) === "true",
+  promptRegistryEnabled: (process.env.PROMPT_REGISTRY_ENABLED ?? (process.env.NODE_ENV === "production" ? "true" : "false")) === "true",
+  redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
+  redisQueuePrefix: process.env.REDIS_QUEUE_PREFIX ?? "sacco:queue:",
+  redisConcurrency: Number(process.env.REDIS_CONCURRENCY ?? 10),
+  eventBusEnabled: (process.env.EVENT_BUS_ENABLED ?? (process.env.NODE_ENV === "production" ? "true" : "false")) === "true",
+  natsUrl: process.env.NATS_URL ?? "",
 };
 
 export function hasClaude(): boolean {

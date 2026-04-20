@@ -31,3 +31,16 @@ export function getUploadedFileSheetNames(tenantId: string, fileName: string): s
   if (!fileRecord) return [];
   return Object.keys(fileRecord);
 }
+
+export function listUploadedFiles(tenantId: string): Array<{ fileName: string; sheetNames: string[] }> {
+  const store = getTenantStore(tenantId);
+  const result: Array<{ fileName: string; sheetNames: string[] }> = [];
+  for (const [fileName, sheets] of store.entries()) {
+    result.push({ fileName, sheetNames: Object.keys(sheets) });
+  }
+  return result.sort((a, b) => a.fileName.localeCompare(b.fileName));
+}
+
+export function deleteUploadedFile(tenantId: string, fileName: string): boolean {
+  return getTenantStore(tenantId).delete(fileName);
+}

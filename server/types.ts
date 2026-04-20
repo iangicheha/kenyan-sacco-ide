@@ -67,6 +67,8 @@ export interface PendingOperation {
   reasoning: string;
   regulationReference?: string;
   confidence: number;
+  policyVersion?: string;
+  policyId?: string;
   status: "pending" | "accepted" | "rejected";
   createdAt: string;
 }
@@ -82,4 +84,6 @@ export interface AuditLogEntry {
   timestamp: string;
   aiReasoning: string;
   correlationId?: string;
+  policyVersion?: string;
+  policyId?: string;
 }

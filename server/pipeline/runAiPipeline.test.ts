@@ -6,6 +6,21 @@ import { listPendingOperations } from "../engine/pendingOps.js";
 import { listWorkflowTransitions } from "../engine/workflowState.js";
 import { acceptOperation, rejectOperation, runPlanningPipeline } from "./runAiPipeline.js";
 
+vi.mock("../engine/policyStore.js", () => ({
+  getActivePolicy: vi.fn(async () => ({
+    id: "policy-test-1",
+    regulator: "CBK" as const,
+    version: "1.0.0",
+    rulesJson: {
+      highRiskIntents: ["calculate_provisioning", "generate_report", "validate_data"],
+      requiresApproval: true,
+    },
+    effectiveFrom: new Date().toISOString(),
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  })),
+}));
+
 vi.mock("../agents/financialPlanner.js", () => {
   return {
     buildFinancialPlan: vi.fn(async () => ({

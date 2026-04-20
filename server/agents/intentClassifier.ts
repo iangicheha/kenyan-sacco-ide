@@ -1,4 +1,5 @@
 import { askRoutedJson } from "../lib/modelRouterClient.js";
+import { resolvePrompt } from "../lib/promptProvider.js";
 import { buildRoutingInput } from "../model-router/catalog.js";
 import { selectModelRoute } from "../model-router/router.js";
 import { z } from "zod";
@@ -20,7 +21,11 @@ const intentSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
-export async function classifyIntent(input: string, fallbackRegulator: Regulator): Promise<IntentResult> {
+export async function classifyIntent(
+  input: string,
+  fallbackRegulator: Regulator,
+  context?: { tenantId?: string; sessionId?: string; correlationId?: string; role?: "read-only" | "analyst" | "reviewer" | "admin" }
+): Promise<IntentResult & { failureReason?: string; attempts?: number }> {
   const route = selectModelRoute(
     buildRoutingInput({
       userQuery: input,
@@ -30,28 +35,33 @@ export async function classifyIntent(input: string, fallbackRegulator: Regulator
     })
   );
 
+  const prompt = await resolvePrompt("intent_classifier", { fallbackRegulator });
   const llmResult = await askRoutedJson<IntentResult>({
     route,
-    system: `You are a Meridian Financial AI intent classifier for Kenyan SACCOs and financial institutions.
-
-Analyze the user's request and classify it into a structured intent.
-
-Return strict JSON with these keys:
-- "intent": one of ["calculate_provisioning", "classify_loans", "generate_report", "analyze_portfolio", "validate_data", "compute_ratios", "forecast", "unknown"]
-- "scope": one of ["single_cell", "column_range", "sheet_range", "unknown"]
-- "regulation": "CBK" | "SASRA" | "IRA" | "RBA" | "CMA"
-- "confidence": number 0.0 to 1.0
-
-Use SASRA/CBK guidelines for Kenyan SACCOs. When uncertain, use the provided fallbackRegulator.`,
+    system: prompt.template,
     user: `Classify this request: "${input}". Use regulation "${fallbackRegulator}" when uncertain.`,
+    operationName: "intent_classifier",
+    governance: context
+      ? {
+          tenantId: context.tenantId ?? "default",
+          sessionId: context.sessionId ?? "unknown",
+          correlationId: context.correlationId ?? "unknown",
+          role: context.role ?? "analyst",
+          actionType: "classification",
+          promptId: prompt.promptId,
+          promptVersion: prompt.version,
+        }
+      : undefined,
   });
-  const parsed = intentSchema.safeParse(llmResult);
+  const parsed = intentSchema.safeParse(llmResult.data);
   if (parsed.success) {
     return {
       intent: parsed.data.intent,
       scope: parsed.data.scope,
       regulation: parsed.data.regulation,
       confidence: parsed.data.confidence,
+      failureReason: llmResult.failureReason,
+      attempts: llmResult.attempts,
     };
   }
 

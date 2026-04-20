@@ -6,6 +6,7 @@ import { emitOrchestratorEvent } from "../engine/orchestratorTelemetry.js";
 import {
   createPendingFormulaOperation,
   listPendingOperations,
+  getPendingOperationById,
   markOperationAccepted,
   markOperationRejected,
 } from "../engine/pendingOps.js";
@@ -24,7 +25,14 @@ export async function runPlanningPipeline(input: {
   preclassifiedIntent?: Awaited<ReturnType<typeof classifyIntent>>;
 }) {
   const classifyStartedAt = Date.now();
-  const intent = input.preclassifiedIntent ?? (await classifyIntent(input.analystPrompt, input.regulator));
+  const intent =
+    input.preclassifiedIntent ??
+    (await classifyIntent(input.analystPrompt, input.regulator, {
+      tenantId: input.tenantId,
+      sessionId: input.sessionId,
+      correlationId: input.correlationId,
+      role: "analyst",
+    }));
   await emitOrchestratorEvent({
     tenantId: input.tenantId,
     correlationId: input.correlationId,
@@ -59,6 +67,8 @@ export async function runPlanningPipeline(input: {
       risk: policyDecision.risk,
       requiresApproval: policyDecision.requiresApproval,
       reason: policyDecision.reason,
+      policyVersion: policyDecision.policyVersion,
+      policyId: policyDecision.policyId,
     },
   });
   if (!policyDecision.allowed) {
@@ -70,7 +80,12 @@ export async function runPlanningPipeline(input: {
   }
 
   const planningStartedAt = Date.now();
-  const plan = await buildFinancialPlan(intent);
+  const plan = await buildFinancialPlan(intent, {
+    tenantId: input.tenantId,
+    sessionId: input.sessionId,
+    correlationId: input.correlationId,
+    role: "analyst",
+  });
   await emitOrchestratorEvent({
     tenantId: input.tenantId,
     correlationId: input.correlationId,
@@ -108,6 +123,8 @@ export async function runPlanningPipeline(input: {
       reasoning: action.reasoning,
       regulationReference: action.regulationReference,
       confidence: intent.confidence,
+      policyVersion: policyDecision.policyVersion,
+      policyId: policyDecision.policyId,
     });
   }
 
@@ -132,6 +149,8 @@ export async function runPlanningPipeline(input: {
   return {
     status: "pending_review" as const,
     policyDecision,
+    policyVersion: policyDecision.policyVersion,
+    policyId: policyDecision.policyId,
     pendingOperations: await listPendingOperations(input.sessionId, input.tenantId),
   };
 }
@@ -144,6 +163,19 @@ export async function acceptOperation(input: {
   sheetData?: Record<string, string | number | boolean | null>;
 }) {
   const startedAt = Date.now();
+  const existing = await getPendingOperationById(input.operationId);
+  if (existing && existing.tenantId !== input.tenantId) {
+    await emitOrchestratorEvent({
+      tenantId: input.tenantId,
+      correlationId: input.correlationId,
+      sessionId: existing.sessionId,
+      stage: "accept_operation",
+      status: "failed",
+      details: { reason: "cross_tenant", operationId: input.operationId },
+    });
+    return { status: "forbidden" as const };
+  }
+
   const op = await markOperationAccepted(input.operationId, input.tenantId);
   if (!op) {
     await emitOrchestratorEvent({
@@ -191,6 +223,8 @@ export async function acceptOperation(input: {
     timestamp: new Date().toISOString(),
     aiReasoning: op.reasoning,
     correlationId: input.correlationId,
+    policyVersion: op.policyVersion,
+    policyId: op.policyId,
   });
   await appendWorkflowTransition({
     tenantId: input.tenantId,
@@ -216,6 +250,19 @@ export async function acceptOperation(input: {
 }
 
 export async function rejectOperation(input: { tenantId: string; operationId: string; actor: string; correlationId: string }) {
+  const existing = await getPendingOperationById(input.operationId);
+  if (existing && existing.tenantId !== input.tenantId) {
+    await emitOrchestratorEvent({
+      tenantId: input.tenantId,
+      correlationId: input.correlationId,
+      sessionId: existing.sessionId,
+      stage: "reject_operation",
+      status: "failed",
+      details: { reason: "cross_tenant", operationId: input.operationId },
+    });
+    return { status: "forbidden" as const };
+  }
+
   const op = await markOperationRejected(input.operationId, input.tenantId);
   if (!op) return { status: "not_found" as const };
   await appendWorkflowTransition({

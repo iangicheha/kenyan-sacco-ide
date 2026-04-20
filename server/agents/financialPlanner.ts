@@ -1,4 +1,5 @@
 import { askRoutedJson } from "../lib/modelRouterClient.js";
+import { resolvePrompt } from "../lib/promptProvider.js";
 import { buildRoutingInput } from "../model-router/catalog.js";
 import { selectModelRoute } from "../model-router/router.js";
 import { readRegulatoryConfig } from "../tools/readRegulatoryConfig.js";
@@ -19,7 +20,10 @@ const plannerSchema = z.object({
   ),
 });
 
-export async function buildFinancialPlan(intent: IntentResult): Promise<PlannerResult> {
+export async function buildFinancialPlan(
+  intent: IntentResult,
+  context?: { tenantId?: string; sessionId?: string; correlationId?: string; role?: "read-only" | "analyst" | "reviewer" | "admin" }
+): Promise<PlannerResult & { failureReason?: string; attempts?: number }> {
   const regulatoryConfig = (await readRegulatoryConfig(intent.regulation).catch(() => null)) as
     | {
         loan_provisioning?: {
@@ -43,34 +47,27 @@ export async function buildFinancialPlan(intent: IntentResult): Promise<PlannerR
     })
   );
 
+  const prompt = await resolvePrompt("financial_planner");
   const llmPlan = await askRoutedJson<PlannerResult>({
     route,
-    system: `You are a Meridian Financial AI planning engine for Kenyan SACCOs and financial institutions.
-
-Create a structured execution plan for spreadsheet operations.
-
-CRITICAL RULES:
-- Return ONLY formulas; NEVER compute numerical results yourself
-- Each formula must be valid Excel/Google Sheets syntax
-- Reference specific column names or cell ranges
-- Include regulatory citations where applicable
-- Plans must be executable deterministically by the engine
-
-Return strict JSON with key "plan" containing an array of steps. Each step has:
-- "step": number (1-indexed)
-- "action": "read_column" | "write_formula" | "write_value"
-- "target": string (column name, cell reference, or range)
-- "formula": string (Excel formula, for write_formula actions)
-- "value": string | number | boolean | null (for write_value actions)
-- "reasoning": string (brief explanation of why this step)
-- "regulationReference": string (optional, e.g., "CBK/PG/15 Section 4.2")
-
-Use Kenyan SACCO regulatory guidelines (CBK, SASRA) for provisioning and compliance.`,
+    system: prompt.template,
     user: `Create an execution plan for intent "${intent.intent}" under regulator "${intent.regulation}" with thresholds ${JSON.stringify(lp ?? {})}.`,
+    operationName: "financial_planner",
+    governance: context
+      ? {
+          tenantId: context.tenantId ?? "default",
+          sessionId: context.sessionId ?? "unknown",
+          correlationId: context.correlationId ?? "unknown",
+          role: context.role ?? "analyst",
+          actionType: "planning",
+          promptId: prompt.promptId,
+          promptVersion: prompt.version,
+        }
+      : undefined,
   });
-  const parsed = plannerSchema.safeParse(llmPlan);
+  const parsed = plannerSchema.safeParse(llmPlan.data);
   if (parsed.success) {
-    return parsed.data;
+    return { ...parsed.data, failureReason: llmPlan.failureReason, attempts: llmPlan.attempts };
   }
 
   if (intent.intent === "calculate_provisioning") {

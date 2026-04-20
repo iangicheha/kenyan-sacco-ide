@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import { env } from "../config/env.js";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "dev-secret-change-in-production";
 export type UserRole = "read-only" | "analyst" | "reviewer" | "admin";
@@ -40,6 +41,7 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
 }
 
 export function userHasAnyRole(req: AuthenticatedRequest, roles: UserRole[]): boolean {
+  if (env.disableRbac) return true;
   const role = req.user?.role;
   if (!role) return false;
   return roles.includes(role);
@@ -47,6 +49,7 @@ export function userHasAnyRole(req: AuthenticatedRequest, roles: UserRole[]): bo
 
 export function requireRoles(roles: UserRole[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    if (env.disableRbac) return next();
     if (!userHasAnyRole(req, roles)) {
       res.status(403).json({
         error: `Forbidden. Required role: ${roles.join(" or ")}.`,

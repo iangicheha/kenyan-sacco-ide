@@ -94,18 +94,16 @@ export function AgentSidebar({
     setIsLoading(true);
 
     try {
-      // REAL API CALL to tRPC endpoint
-      const response = await authFetch(
-        "/api/trpc/spreadsheet.chat",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId,
-            message: text,
-          }),
-        }
-      );
+      // REAL API CALL to AI chat endpoint
+      const response = await authFetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          prompt: text,
+          regulator: "SASRA",
+        }),
+      });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -115,42 +113,66 @@ export function AgentSidebar({
       }
 
       const result = await response.json();
-      const data = result.result?.data;
 
-      if (!data) {
+      if (!result) {
         throw new Error("Invalid response from server");
       }
 
-      // Parse the AI response (it's a JSON string in the message field)
+      // Handle different response statuses from /api/ai/chat
       let aiResponse: AgentMessage;
-      try {
-        const parsedMessage = JSON.parse(data.message);
+      const status = result.status;
 
+      if (result.error) {
         aiResponse = {
           id: (Date.now() + 1).toString(),
-          type: parsedMessage.result?.startsWith("ERROR") ? "error" : "agent",
-          content: formatAIResponse(parsedMessage),
+          type: "error",
+          content: result.error,
           timestamp: new Date(),
-          executionTrace: parsedMessage.trace || undefined,
-          operations: data.operations || [],
-          cellLinks: data.cellLinks || [],
         };
-      } catch {
-        // Fallback if message is not JSON
+      } else if (status === "chat" || status === "file_answer") {
         aiResponse = {
           id: (Date.now() + 1).toString(),
           type: "agent",
-          content: data.message || "No response",
+          content: result.message || result.summary || "No response",
+          timestamp: new Date(),
+        };
+      } else if (status === "file_summary") {
+        aiResponse = {
+          id: (Date.now() + 1).toString(),
+          type: "agent",
+          content: result.summary || "File loaded",
+          timestamp: new Date(),
+        };
+      } else if (status === "pending_review") {
+        const operationCount = Array.isArray(result.pendingOperations) ? result.pendingOperations.length : 0;
+        aiResponse = {
+          id: (Date.now() + 1).toString(),
+          type: "agent",
+          content: `I prepared ${operationCount} spreadsheet operation(s) for your review.`,
+          timestamp: new Date(),
+          operations: result.pendingOperations,
+        };
+        if (operationCount > 0) {
+          onAction?.("operations_updated", result.pendingOperations);
+        }
+      } else if (status === "clarification_required") {
+        aiResponse = {
+          id: (Date.now() + 1).toString(),
+          type: "agent",
+          content: "I need a bit more detail. Ask a direct question about the file or request a specific spreadsheet action.",
+          timestamp: new Date(),
+        };
+      } else {
+        // Fallback for unknown status
+        aiResponse = {
+          id: (Date.now() + 1).toString(),
+          type: "agent",
+          content: result.message || result.summary || JSON.stringify(result),
           timestamp: new Date(),
         };
       }
 
       setMessages((prev) => [...prev, aiResponse]);
-
-      // Trigger refresh of pending operations panel
-      if (data.operations?.length > 0) {
-        onAction?.("operations_updated", data.operations);
-      }
     } catch (error) {
       console.error("Chat error:", error);
       const errorMessage: AgentMessage = {
@@ -166,48 +188,6 @@ export function AgentSidebar({
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const formatAIResponse = (parsed: {
-    query?: string;
-    plan?: Array<{ step: number; action: string; description: string }>;
-    execution?: Array<{
-      step: number;
-      operation: string;
-      input: unknown;
-      output: unknown;
-    }>;
-    result?: number | string;
-  }): string => {
-    if (parsed.result?.toString().startsWith("ERROR")) {
-      return `❌ ${parsed.result}`;
-    }
-
-    let response = "**Query:** " + (parsed.query || "Unknown") + "\n\n";
-
-    if (parsed.plan?.length) {
-      response += "**Plan:**\n";
-      parsed.plan.forEach((step) => {
-        response += `${step.step}. ${step.action}: ${step.description}\n`;
-      });
-      response += "\n";
-    }
-
-    if (parsed.execution?.length) {
-      response += "**Execution:**\n";
-      parsed.execution.forEach((step) => {
-        response += `${step.step}. ${step.operation}: ${JSON.stringify(
-          step.output
-        )}\n`;
-      });
-      response += "\n";
-    }
-
-    if (parsed.result !== undefined) {
-      response += `**Result:** ${parsed.result}`;
-    }
-
-    return response;
   };
 
   const handleQuickAction = async (action: string) => {

@@ -5,14 +5,15 @@
  *
  * Flow:
  * 1. User selects file(s)
- * 2. Create session via /upload
- * 3. Upload file(s) to session
- * 4. Parse and populate cell graph
+ * 2. Create client-side session ID
+ * 3. Upload file(s) to /api/files/upload
+ * 4. Server parses and returns sheet data
  * 5. Return session ID for AI operations
  */
 
 import { useState } from "react";
 import { apiUrl } from "@/lib/api";
+import { authFetch } from "@/lib/authApi";
 import { Button } from "@/components/ui/button";
 import { Upload, Loader2, CheckCircle2, AlertCircle, FileSpreadsheet } from "lucide-react";
 
@@ -51,40 +52,11 @@ export function FileUploadHandler({
   const createSession = async () => {
     if (!selectedFiles.length) return null;
 
-    setIsCreatingSession(true);
-    try {
-      const response = await fetch(apiUrl("/api/trpc/spreadsheet.upload"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          sessionTitle: `Spreadsheet Session - ${selectedFiles[0].name}`,
-          sessionDescription: `Uploaded ${selectedFiles.length} file(s)`,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to create session");
-      }
-
-      const result = await response.json();
-      const newSessionId = result.result?.data?.sessionId;
-
-      if (!newSessionId) {
-        throw new Error("No session ID returned");
-      }
-
-      setSessionId(newSessionId);
-      onSessionCreated?.(newSessionId);
-      return newSessionId;
-    } catch (error) {
-      setUploadStatus("error");
-      setStatusMessage(`Session creation failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-      onUploadError?.(statusMessage);
-      return null;
-    } finally {
-      setIsCreatingSession(false);
-    }
+    // Sessions are managed server-side; use a client-generated session ID
+    const newSessionId = `session-${Date.now()}`;
+    setSessionId(newSessionId);
+    onSessionCreated?.(newSessionId);
+    return newSessionId;
   };
 
   const handleUpload = async () => {
@@ -109,26 +81,27 @@ export function FileUploadHandler({
     const results: Array<{ fileName: string; rowCount: number }> = [];
 
     try {
-      for (const file of selectedFiles) {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("sessionId", currentSessionId);
+      const formData = new FormData();
+      selectedFiles.forEach((file) => formData.append("files", file));
 
-        const response = await fetch(apiUrl("/api/upload-file"), {
-          method: "POST",
-          body: formData,
-        });
+      const response = await authFetch("/api/files/upload", {
+        method: "POST",
+        body: formData,
+      });
 
-        if (!response.ok) {
-          throw new Error(`Failed to upload ${file.name}`);
-        }
-
-        const result = await response.json();
-        results.push({
-          fileName: file.name,
-          rowCount: result.rowCount || 0,
-        });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: `Failed to upload files` }));
+        throw new Error(errorData.error || `Failed to upload files`);
       }
+
+      const result = await response.json();
+      const serverParsedFiles = Array.isArray(result?.parsedFiles) ? result.parsedFiles : [];
+      serverParsedFiles.forEach((file: any) => {
+        results.push({
+          fileName: file.fileName || "unknown",
+          rowCount: file.sheets?.[0]?.totalRows || 0,
+        });
+      });
 
       setUploadStatus("success");
       setStatusMessage(`Successfully processed ${results.length} file(s). Total rows: ${results.reduce((a, b) => a + b.rowCount, 0)}`);
@@ -139,9 +112,10 @@ export function FileUploadHandler({
       });
       setSelectedFiles([]);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       setUploadStatus("error");
-      setStatusMessage(`Upload failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-      onUploadError?.(statusMessage);
+      setStatusMessage(`Upload failed: ${errorMessage}`);
+      onUploadError?.(errorMessage);
     } finally {
       setIsUploading(false);
     }

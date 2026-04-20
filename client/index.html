@@ -16,6 +16,15 @@
 
   <body>
     <div id="root"></div>
+    <!-- Debug: Log service worker status -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(regs => {
+          console.log('[sw] Service worker registrations:', regs.length);
+          regs.forEach((r, i) => console.log(`[sw] ${i}:`, r.scope, r.active ? 'active' : 'inactive'));
+        });
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 

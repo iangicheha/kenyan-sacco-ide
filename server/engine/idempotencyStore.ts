@@ -1,17 +1,12 @@
-import { env } from "../config/env.js";
+import { ServiceUnavailableError } from "../lib/serviceUnavailableError.js";
 import { getSupabase } from "../lib/supabase.js";
+import { env } from "../config/env.js";
 
 type IdempotentValue = {
   statusCode: number;
   body: unknown;
   createdAt: string;
 };
-
-const idempotencyStore = new Map<string, IdempotentValue>();
-
-function buildKey(scope: string, key: string): string {
-  return `${scope}:${key}`;
-}
 
 function isExpired(createdAt: string): boolean {
   const createdMs = Date.parse(createdAt);
@@ -20,41 +15,50 @@ function isExpired(createdAt: string): boolean {
 }
 
 function getExpiryIsoThreshold(): string {
-  return new Date(Date.now() - env.idempotencyTtlSeconds * 1000).toISOString();
+  const ttlMs = env.idempotencyTtlSeconds * 1000;
+  const retentionMs = env.retentionDaysIdempotency * 24 * 60 * 60 * 1000;
+  return new Date(Date.now() - Math.max(ttlMs, retentionMs)).toISOString();
 }
 
 export async function getIdempotentResponse(scope: string, key: string): Promise<IdempotentValue | null> {
   const supabase = getSupabase();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("idempotency_records")
-      .select("*")
-      .eq("scope", scope)
-      .eq("idempotency_key", key)
-      .single();
-
-    if (!error && data) {
-      const record = {
-        statusCode: data.status_code,
-        body: data.response_body,
-        createdAt: data.created_at,
-      };
-      if (isExpired(record.createdAt)) {
-        await supabase.from("idempotency_records").delete().eq("scope", scope).eq("idempotency_key", key);
-        return null;
-      }
-      return record;
-    }
+  if (!supabase) {
+    throw new ServiceUnavailableError("Failed to check idempotency record.", {
+      store: "idempotency_records",
+      reason: "supabase_unavailable",
+    });
   }
 
-  const item = idempotencyStore.get(buildKey(scope, key));
-  if (!item) return null;
-  if (isExpired(item.createdAt)) {
-    idempotencyStore.delete(buildKey(scope, key));
+  const { data, error } = await supabase
+    .from("idempotency_records")
+    .select("*")
+    .eq("scope", scope)
+    .eq("idempotency_key", key)
+    .single();
+
+  if (error) {
+    // Not found is expected for new requests
+    if (error.code === "PGRST116") return null;
+    throw new ServiceUnavailableError("Failed to check idempotency record.", {
+      store: "idempotency_records",
+      reason: "supabase_query_failed",
+    });
+  }
+
+  if (!data) return null;
+
+  const record = {
+    statusCode: data.status_code,
+    body: data.response_body,
+    createdAt: data.created_at,
+  };
+
+  if (isExpired(record.createdAt)) {
+    await supabase.from("idempotency_records").delete().eq("scope", scope).eq("idempotency_key", key);
     return null;
   }
-  if (!env.allowInMemoryFallback) return null;
-  return item;
+
+  return record;
 }
 
 export async function saveIdempotentResponse(
@@ -68,55 +72,56 @@ export async function saveIdempotentResponse(
   };
 
   const supabase = getSupabase();
-  if (supabase) {
-    const { error } = await supabase.from("idempotency_records").upsert(
-      {
-        scope,
-        idempotency_key: key,
-        status_code: record.statusCode,
-        response_body: record.body,
-        created_at: record.createdAt,
-      },
-      {
-        onConflict: "scope,idempotency_key",
-      }
-    );
-
-    if (!error) return;
+  if (!supabase) {
+    throw new ServiceUnavailableError("Failed to persist idempotency record.", {
+      store: "idempotency_records",
+      reason: "supabase_unavailable",
+    });
   }
 
-  if (!env.allowInMemoryFallback) {
-    throw new Error("Failed to persist idempotency record and in-memory fallback is disabled.");
-  }
+  const { error } = await supabase.from("idempotency_records").upsert(
+    {
+      scope,
+      idempotency_key: key,
+      status_code: record.statusCode,
+      response_body: record.body,
+      created_at: record.createdAt,
+    },
+    {
+      onConflict: "scope,idempotency_key",
+    }
+  );
 
-  idempotencyStore.set(buildKey(scope, key), record);
+  if (error) {
+    throw new ServiceUnavailableError("Failed to persist idempotency record.", {
+      store: "idempotency_records",
+      reason: "supabase_upsert_failed",
+    });
+  }
 }
 
-export async function cleanupExpiredIdempotencyRecords(): Promise<{ deleted: number; mode: "supabase" | "memory" | "none" }> {
+export async function cleanupExpiredIdempotencyRecords(): Promise<{ deleted: number; mode: "supabase" | "none" }> {
   const supabase = getSupabase();
-  if (supabase) {
-    const thresholdIso = getExpiryIsoThreshold();
-    const { data, error } = await supabase
-      .from("idempotency_records")
-      .delete()
-      .lt("created_at", thresholdIso)
-      .select("id");
-
-    if (!error) {
-      return { deleted: data?.length ?? 0, mode: "supabase" };
-    }
+  if (!supabase) {
+    throw new ServiceUnavailableError("Failed to cleanup idempotency records.", {
+      store: "idempotency_records",
+      reason: "supabase_unavailable",
+    });
   }
 
-  if (!env.allowInMemoryFallback) {
-    return { deleted: 0, mode: "none" };
+  const thresholdIso = getExpiryIsoThreshold();
+  const { data, error } = await supabase
+    .from("idempotency_records")
+    .delete()
+    .lt("created_at", thresholdIso)
+    .select("id");
+
+  if (error) {
+    throw new ServiceUnavailableError("Failed to cleanup idempotency records.", {
+      store: "idempotency_records",
+      reason: "supabase_delete_failed",
+    });
   }
 
-  let deleted = 0;
-  for (const [key, value] of idempotencyStore.entries()) {
-    if (isExpired(value.createdAt)) {
-      idempotencyStore.delete(key);
-      deleted += 1;
-    }
-  }
-  return { deleted, mode: "memory" };
+  return { deleted: data?.length ?? 0, mode: "supabase" };
 }

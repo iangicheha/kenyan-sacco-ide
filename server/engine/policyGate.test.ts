@@ -17,7 +17,7 @@ describe("evaluatePolicyGate", () => {
     expect(result.requiresApproval).toBe(false);
   });
 
-  it("marks provisioning as high risk and requires approval", async () => {
+  it("blocks high risk operations when no policy is found", async () => {
     const result = await evaluatePolicyGate({
       regulator: "SASRA",
       intent: {
@@ -28,8 +28,9 @@ describe("evaluatePolicyGate", () => {
       },
     });
 
-    expect(result.allowed).toBe(true);
+    expect(result.allowed).toBe(false);
     expect(result.risk).toBe("high");
     expect(result.requiresApproval).toBe(true);
+    expect(result.reason).toContain("No active policy");
   });
 });

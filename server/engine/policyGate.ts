@@ -30,11 +30,11 @@ export async function evaluatePolicyGate(input: PolicyInput): Promise<PolicyDeci
   const activePolicy = await getActivePolicy(input.regulator);
   if (activePolicy) {
     const highRiskIntents = new Set<string>(
-      Array.isArray(activePolicy.rules?.highRiskIntents) ? (activePolicy.rules?.highRiskIntents as string[]) : []
+      Array.isArray(activePolicy.rulesJson.highRiskIntents) ? (activePolicy.rulesJson.highRiskIntents as string[]) : []
     );
     const risk = highRiskIntents.has(input.intent.intent) ? "high" : "medium";
     const requiresApproval =
-      typeof activePolicy.rules?.requiresApproval === "boolean" ? Boolean(activePolicy.rules.requiresApproval) : true;
+      typeof activePolicy.rulesJson.requiresApproval === "boolean" ? Boolean(activePolicy.rulesJson.requiresApproval) : true;
     return {
       allowed: true,
       risk,
@@ -46,14 +46,18 @@ export async function evaluatePolicyGate(input: PolicyInput): Promise<PolicyDeci
   }
 
   const risk = HIGH_RISK_INTENTS.has(input.intent.intent) ? "high" : "medium";
+  if (risk === "high") {
+    return {
+      allowed: false,
+      risk,
+      reason: `No active policy found for ${input.regulator}; high-risk operations are blocked.`,
+      requiresApproval: true,
+    };
+  }
   return {
     allowed: true,
     risk,
-    reason:
-      risk === "high"
-        ? `High-risk intent under ${input.regulator} requires review approval.`
-        : `Operational intent allowed under ${input.regulator} with standard review.`,
+    reason: `No active policy found for ${input.regulator}; using conservative medium-risk default.`,
     requiresApproval: true,
-    policyVersion: "static-fallback",
   };
 }

@@ -977,13 +977,22 @@ export default function Home() {
         setIsUploadingFiles(true);
         toast.info('Uploading and parsing files...');
 
-        const response = await fetch(apiUrl('/api/files/upload'), {
+        const response = await authFetch('/api/files/upload', {
           method: 'POST',
           body: formData,
         });
 
         if (!response.ok) {
-          throw new Error(`Upload failed (${response.status})`);
+          let message = `Upload failed (${response.status})`;
+          try {
+            const payload = await response.json();
+            if (typeof payload?.error === 'string' && payload.error.trim().length > 0) {
+              message = payload.error;
+            }
+          } catch {
+            // Ignore parse errors and keep fallback message.
+          }
+          throw new Error(message);
         }
 
         const result = await response.json();
@@ -1089,11 +1098,20 @@ export default function Home() {
 
     try {
       setIsLoadingMoreRows(true);
-      const response = await fetch(
-        `${apiUrl("/api/files/upload/preview")}?fileName=${encodeURIComponent(currentFileMeta.name)}&sheetName=${encodeURIComponent(currentSheetName)}&offset=${activeSheet.loadedRows}&limit=500`
+      const response = await authFetch(
+        `/api/files/upload/preview?fileName=${encodeURIComponent(currentFileMeta.name)}&sheetName=${encodeURIComponent(currentSheetName)}&offset=${activeSheet.loadedRows}&limit=500`
       );
       if (!response.ok) {
-        throw new Error(`Failed to load more rows (${response.status})`);
+        let message = `Failed to load more rows (${response.status})`;
+        try {
+          const payload = await response.json();
+          if (typeof payload?.error === 'string' && payload.error.trim().length > 0) {
+            message = payload.error;
+          }
+        } catch {
+          // Ignore parse errors and keep fallback message.
+        }
+        throw new Error(message);
       }
       const result = await response.json();
       const newRows = Array.isArray(result.rows) ? result.rows : [];

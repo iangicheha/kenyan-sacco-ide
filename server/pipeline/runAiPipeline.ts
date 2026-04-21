@@ -14,6 +14,7 @@ import { evaluatePolicyGate } from "../engine/policyGate.js";
 import { appendWorkflowTransition } from "../engine/workflowState.js";
 import { validateFormula } from "../tools/validateFormula.js";
 import type { Regulator } from "../types.js";
+import { expandPrimitive, SACCO_PRIMITIVES } from "../engine/primitives/index.js";
 
 export async function runPlanningPipeline(input: {
   tenantId: string;
@@ -118,6 +119,24 @@ export async function runPlanningPipeline(input: {
   // 4. Parallel Validation and Persistence
   const formulaActions = plan.plan.filter(a => a.action === "write_formula" && a.formula);
   
+  // Expand Primitives before validation
+  for (const action of formulaActions) {
+    const primitiveMatch = action.formula!.match(/^([A-Z_]+)\((.*)\)$/);
+    if (primitiveMatch && SACCO_PRIMITIVES[primitiveMatch[1]]) {
+      const primitiveId = primitiveMatch[1];
+      const rawArgs = primitiveMatch[2].split(",").map(s => s.trim());
+      const primitive = SACCO_PRIMITIVES[primitiveId];
+      
+      const args: Record<string, string | number> = {};
+      primitive.parameters.forEach((p, i) => {
+        args[p.name] = rawArgs[i];
+      });
+      
+      action.formula = expandPrimitive(primitiveId, args);
+      action.reasoning = `[Primitive: ${primitiveId}] ${action.reasoning}`;
+    }
+  }
+
   const validationResults = await Promise.all(formulaActions.map(async (action) => {
     const validation = validateFormula(action.formula!);
     if (!validation.isValid) {

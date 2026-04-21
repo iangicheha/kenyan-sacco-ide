@@ -23,8 +23,9 @@ export interface InvocationMetrics {
 const USD_PER_1K_TOKENS_DEFAULT = 0.0015;
 
 function estimateTokens(text: string): number {
-  // Approximate tokenization for governance checks.
-  return Math.max(1, Math.ceil(text.length / 4));
+  // Improved approximation: 1 token ≈ 3.5 characters for English/Code
+  // Financial data often has many numbers/symbols which are token-heavy
+  return Math.max(1, Math.ceil(text.length / 3.5));
 }
 
 export async function enforceModelGovernance(input: {
@@ -77,10 +78,18 @@ export async function recordModelInvocation(input: {
   const supabase = getSupabase();
   if (!supabase) return;
 
-  const costUsd =
-    input.metrics.costUsd > 0
-      ? input.metrics.costUsd
-      : Number(((input.metrics.totalTokens / 1000) * USD_PER_1K_TOKENS_DEFAULT).toFixed(6));
+  // Use model-specific pricing if available, otherwise fallback to default
+  const modelPricing: Record<string, number> = {
+    "claude-3-5-sonnet-latest": 0.003,
+    "claude-3-5-haiku-latest": 0.00025,
+    "gpt-4o": 0.005,
+    "gpt-4o-mini": 0.00015,
+  };
+  
+  const rate = modelPricing[input.model] || USD_PER_1K_TOKENS_DEFAULT;
+  const costUsd = input.metrics.costUsd > 0
+    ? input.metrics.costUsd
+    : Number(((input.metrics.totalTokens / 1000) * rate).toFixed(6));
 
   const insert = await supabase.from("model_invocations").insert({
     tenant_id: input.context.tenantId,

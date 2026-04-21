@@ -1,4 +1,4 @@
-import { Queue, type Job } from "bullmq";
+import { Queue, Worker, type Job, type ConnectionOptions } from "bullmq";
 import { randomUUID } from "node:crypto";
 import { env } from "../config/env.js";
 
@@ -32,28 +32,27 @@ interface EnqueueJobInput {
 }
 
 const DEFAULT_MAX_ATTEMPTS = 5;
-const transientFailureBackoffMs = [5_000, 30_000, 120_000, 600_000, 1_800_000];
 const queueByType = new Map<AsyncJobType, Queue<AsyncJobRecord>>();
-let deadLetterQueue: Queue<Record<string, unknown>> | null = null;
+const workersByType = new Map<AsyncJobType, Worker<AsyncJobRecord>>();
 
-function getDeadLetterQueue(): Queue<Record<string, unknown>> {
-  if (deadLetterQueue) return deadLetterQueue;
-  deadLetterQueue = new Queue<Record<string, unknown>>("dead_letter_jobs", {
-    connection: { url: env.redisUrl },
-    prefix: env.redisQueuePrefix,
-  });
-  return deadLetterQueue;
-}
+const connection: ConnectionOptions = {
+  url: env.redisUrl,
+};
 
 function getQueue(jobType: AsyncJobType): Queue<AsyncJobRecord> {
   const cached = queueByType.get(jobType);
   if (cached) return cached;
   const queue = new Queue<AsyncJobRecord>(jobType, {
-    connection: { url: env.redisUrl },
+    connection,
     prefix: env.redisQueuePrefix,
     defaultJobOptions: {
       removeOnComplete: true,
       removeOnFail: false,
+      attempts: DEFAULT_MAX_ATTEMPTS,
+      backoff: {
+        type: "exponential",
+        delay: 5000,
+      },
     },
   });
   queueByType.set(jobType, queue);
@@ -88,8 +87,10 @@ export function isAsyncWorkerExecutionEnabled(): boolean {
 
 async function enqueue(jobType: AsyncJobType, input: EnqueueJobInput): Promise<AsyncJobRecord> {
   const record = withDefaults(jobType, input);
-  await getQueue(jobType).add(jobType, record, {
+  const queue = getQueue(jobType);
+  await queue.add(jobType, record, {
     priority: record.priority,
+    jobId: record.id, // Use our UUID as BullMQ jobId for traceability
   });
   return record;
 }
@@ -110,74 +111,50 @@ export async function enqueueCommitExecuteJob(input: EnqueueJobInput): Promise<A
   return enqueue("commit_execute", input);
 }
 
-async function removeAndNormalize(jobType: AsyncJobType, job: Job<AsyncJobRecord>): Promise<AsyncJobRecord | null> {
-  const data = job.data;
-  try {
-    await job.remove();
-  } catch {
-    return null;
+/**
+ * Registers a worker for a specific job type.
+ * This replaces the manual polling logic in aiWorker.ts.
+ */
+export function registerWorker(
+  jobType: AsyncJobType, 
+  processor: (job: Job<AsyncJobRecord>) => Promise<any>
+): Worker<AsyncJobRecord> {
+  if (workersByType.has(jobType)) {
+    return workersByType.get(jobType)!;
   }
-  return {
-    ...data,
+
+  const worker = new Worker<AsyncJobRecord>(
     jobType,
-    id: job.id ? String(job.id) : data.id,
-  };
-}
+    async (job) => {
+      return await processor(job);
+    },
+    {
+      connection,
+      prefix: env.redisQueuePrefix,
+      concurrency: env.redisConcurrency,
+    }
+  );
 
-export async function claimNextQueuedJob(jobType: AsyncJobType): Promise<AsyncJobRecord | null> {
-  const queue = getQueue(jobType);
-  const waiting = await queue.getJobs(["waiting"], 0, 20, true);
-  for (const job of waiting) {
-    if (job.name !== jobType) continue;
-    const normalized = await removeAndNormalize(jobType, job);
-    if (normalized) return normalized;
-  }
-  return null;
-}
-
-export async function markJobCompleted(_jobId: string, _requestId: string, _result: Record<string, unknown>): Promise<void> {
-  return;
-}
-
-function nextDelayMs(attempt: number): number {
-  return transientFailureBackoffMs[Math.min(attempt, transientFailureBackoffMs.length - 1)];
-}
-
-export async function markJobFailed(job: AsyncJobRecord, errorMessage: string): Promise<void> {
-  const nextAttempt = job.attempt + 1;
-  if (nextAttempt < job.maxAttempts) {
-    const retryRecord: AsyncJobRecord = {
-      ...job,
-      attempt: nextAttempt,
-    };
-    await getQueue(job.jobType).add(job.jobType, retryRecord, {
-      delay: nextDelayMs(job.attempt),
-      priority: retryRecord.priority,
-    });
-    return;
-  }
-
-  await getDeadLetterQueue().add("dead_letter_jobs", {
-    jobId: job.id,
-    jobType: job.jobType,
-    tenantId: job.tenantId,
-    sessionId: job.sessionId,
-    operationId: job.operationId,
-    requestId: job.requestId,
-    correlationId: job.correlationId,
-    payload: job.payload,
-    failedStage: job.jobType,
-    errorMessage,
-    attempts: nextAttempt,
-    maxAttempts: job.maxAttempts,
-    failedAt: new Date().toISOString(),
-  });
+  workersByType.set(jobType, worker);
+  return worker;
 }
 
 export async function closeAsyncJobQueues(): Promise<void> {
-  await Promise.all([...queueByType.values()].map(async (queue) => queue.close()));
-  if (deadLetterQueue) {
-    await deadLetterQueue.close();
-    deadLetterQueue = null;
-  }
+  await Promise.all([...queueByType.values()].map(q => q.close()));
+  await Promise.all([...workersByType.values()].map(w => w.close()));
+  queueByType.clear();
+  workersByType.clear();
+}
+
+// Legacy exports for compatibility during refactor
+export async function claimNextQueuedJob(_jobType: AsyncJobType): Promise<AsyncJobRecord | null> {
+  return null; // Workers handle this now
+}
+
+export async function markJobCompleted(_jobId: string, _requestId: string, _result: Record<string, unknown>): Promise<void> {
+  return; // BullMQ handles this
+}
+
+export async function markJobFailed(_job: AsyncJobRecord, _errorMessage: string): Promise<void> {
+  return; // BullMQ handles this via throwing in worker
 }

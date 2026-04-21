@@ -13,6 +13,8 @@ export async function createPendingFormulaOperation(input: {
   confidence: number;
   policyVersion?: string;
   policyId?: string;
+  evidenceText?: string;
+  sourceDocument?: string;
 }): Promise<PendingOperation> {
   const operation: PendingOperation = {
     id: randomUUID(),
@@ -28,6 +30,8 @@ export async function createPendingFormulaOperation(input: {
     confidence: input.confidence,
     policyVersion: input.policyVersion,
     policyId: input.policyId,
+    evidenceText: input.evidenceText,
+    sourceDocument: input.sourceDocument,
     status: "pending",
     createdAt: new Date().toISOString(),
   };
@@ -54,10 +58,11 @@ export async function createPendingFormulaOperation(input: {
     confidence: operation.confidence,
     policy_version: operation.policyVersion ?? null,
     policy_id: operation.policyId ?? null,
+    evidence_text: operation.evidenceText ?? null,
+    source_document: operation.sourceDocument ?? null,
     status: operation.status,
     created_at: operation.createdAt,
   });
-
   if (error) {
     throw new ServiceUnavailableError("Failed to persist pending operation.", {
       store: "pending_operations",
@@ -104,6 +109,8 @@ export async function getPendingOperationById(operationId: string): Promise<Pend
     confidence: data.confidence,
     policyVersion: data.policy_version ?? undefined,
     policyId: data.policy_id ?? undefined,
+    evidenceText: data.evidence_text ?? undefined,
+    sourceDocument: data.source_document ?? undefined,
     status: data.status,
     createdAt: data.created_at,
   };
@@ -223,6 +230,8 @@ export async function markOperationAccepted(operationId: string, tenantId: strin
     confidence: data.confidence,
     policyVersion: data.policy_version ?? undefined,
     policyId: data.policy_id ?? undefined,
+    evidenceText: data.evidence_text ?? undefined,
+    sourceDocument: data.source_document ?? undefined,
     status: data.status,
     createdAt: data.created_at,
   };
@@ -270,6 +279,8 @@ export async function markOperationRejected(operationId: string, tenantId: strin
     confidence: data.confidence,
     policyVersion: data.policy_version ?? undefined,
     policyId: data.policy_id ?? undefined,
+    evidenceText: data.evidence_text ?? undefined,
+    sourceDocument: data.source_document ?? undefined,
     status: data.status,
     createdAt: data.created_at,
   };

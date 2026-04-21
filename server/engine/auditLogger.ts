@@ -27,6 +27,8 @@ export async function appendAuditLog(entry: AuditLogEntry): Promise<void> {
     ...basePayload,
     policy_version: entry.policyVersion ?? null,
     policy_id: entry.policyId ?? null,
+    evidence_text: entry.evidenceText ?? null,
+    source_document: entry.sourceDocument ?? null,
   };
   const extendedInsert = await supabase.from("audit_log").insert(extendedPayload);
   if (!extendedInsert.error) return;
@@ -76,6 +78,8 @@ export async function getAuditLog(sessionId: string, tenantId: string): Promise<
     correlationId: row.correlation_id ?? undefined,
     policyVersion: row.policy_version ?? undefined,
     policyId: row.policy_id ?? undefined,
+    evidenceText: row.evidence_text ?? undefined,
+    sourceDocument: row.source_document ?? undefined,
   })) ?? [];
 }
 

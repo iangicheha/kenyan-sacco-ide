@@ -69,6 +69,8 @@ export interface PendingOperation {
   confidence: number;
   policyVersion?: string;
   policyId?: string;
+  evidenceText?: string;
+  sourceDocument?: string;
   status: "pending" | "accepted" | "rejected";
   createdAt: string;
 }
@@ -86,4 +88,6 @@ export interface AuditLogEntry {
   correlationId?: string;
   policyVersion?: string;
   policyId?: string;
+  evidenceText?: string;
+  sourceDocument?: string;
 }

@@ -15,6 +15,7 @@ import { appendWorkflowTransition } from "../engine/workflowState.js";
 import { validateFormula } from "../tools/validateFormula.js";
 import type { Regulator } from "../types.js";
 import { expandPrimitive, SACCO_PRIMITIVES } from "../engine/primitives/index.js";
+import { globalLineageResolver } from "../engine/lineage/lineageResolver.js";
 
 export async function runPlanningPipeline(input: {
   tenantId: string;
@@ -162,9 +163,18 @@ export async function runPlanningPipeline(input: {
     };
   }
 
-  // Persist all valid operations
-  await Promise.all(formulaActions.map(action => 
-    createPendingFormulaOperation({
+  // Persist all valid operations with lineage evidence
+  await Promise.all(formulaActions.map(async (action) => {
+    const lineage = action.regulationReference 
+      ? await globalLineageResolver.buildCellLineage({
+          cellRef: action.target,
+          formula: action.formula!,
+          regulationReference: action.regulationReference,
+          confidence: intent.confidence
+        })
+      : null;
+
+    return createPendingFormulaOperation({
       tenantId: input.tenantId,
       sessionId: input.sessionId,
       cellRef: action.target,
@@ -174,8 +184,10 @@ export async function runPlanningPipeline(input: {
       confidence: intent.confidence,
       policyVersion: finalPolicyDecision.policyVersion,
       policyId: finalPolicyDecision.policyId,
-    })
-  ));
+      evidenceText: lineage?.evidenceText,
+      sourceDocument: lineage?.sourceDocument,
+    });
+  }));
 
   await appendWorkflowTransition({
     tenantId: input.tenantId,
@@ -263,6 +275,8 @@ export async function acceptOperation(input: {
       correlationId: input.correlationId,
       policyVersion: op.policyVersion,
       policyId: op.policyId,
+      evidenceText: op.evidenceText,
+      sourceDocument: op.sourceDocument,
     });
 
     await appendWorkflowTransition({

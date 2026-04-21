@@ -65,16 +65,8 @@ export async function classifyIntent(
     };
   }
 
-  const text = input.toLowerCase();
-
-  if (text.includes("provision")) {
-    return {
-      intent: "calculate_provisioning",
-      scope: "column_range",
-      regulation: fallbackRegulator,
-      confidence: 0.97,
-    };
-  }
+  // Removed fragile regex fallback to ensure model-driven classification
+  // If confidence is low, the pipeline will handle clarification.
 
   return {
     intent: "unknown",
